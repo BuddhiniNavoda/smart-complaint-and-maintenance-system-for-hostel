@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { View, Text, TextInput, Button, StyleSheet, TouchableOpacity, Alert, ScrollView, Image } from 'react-native';
+import { View, Text, TextInput, Button, StyleSheet, TouchableOpacity, Alert, ScrollView, Image, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ThemeContext } from '../context/ThemeContext';
 import * as ImagePicker from 'expo-image-picker';
 import * as NavigationBar from 'expo-navigation-bar';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { db, storage } from '../firebase/config';
+import { ref, push, set, serverTimestamp } from 'firebase/database'; // Changed from Firestore to Realtime Database
+import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { database, storage } from '../firebase/config'; // Make sure this exports Realtime Database, not Firestore
 import { getAuth } from 'firebase/auth';
 
 export default function AddComplaintScreen({ navigation, route }) {
@@ -17,9 +17,10 @@ export default function AddComplaintScreen({ navigation, route }) {
   const [image, setImage] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [connectionError, setConnectionError] = useState(false);
+  const [userData, setUserData] = useState(null);
+  const [loadingUserData, setLoadingUserData] = useState(true);
   const { isDarkMode } = useContext(ThemeContext);
 
-  const { userData } = route.params;
   const auth = getAuth();
 
   const categories = [
@@ -32,21 +33,28 @@ export default function AddComplaintScreen({ navigation, route }) {
     'Other'
   ];
 
-  const showAlertWithNavBarReset = (title, message, callback) => {
-    Alert.alert(title, message, [
-      {
-        text: 'OK',
-        onPress: () => {
-          setTimeout(async () => {
-            await NavigationBar.setVisibilityAsync('hidden');
-            await NavigationBar.setBehaviorAsync('immersive');
-            console.log('Nav bar hidden');
-            if (callback) callback();
-          }, 300);
+  // Load userData from AsyncStorage
+  useEffect(() => {
+    const loadUserData = async () => {
+      try {
+        const storedUserData = await AsyncStorage.getItem('userData');
+        if (storedUserData) {
+          const parsedData = JSON.parse(storedUserData);
+          setUserData(parsedData);
+        } else {
+          Alert.alert('Error', 'User data not found. Please login again.');
+          navigation.navigate('Login');
         }
-      },
-    ]);
-  };
+      } catch (error) {
+        console.error('Error loading user data:', error);
+        Alert.alert('Error', 'Failed to load user data');
+      } finally {
+        setLoadingUserData(false);
+      }
+    };
+
+    loadUserData();
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -57,12 +65,27 @@ export default function AddComplaintScreen({ navigation, route }) {
     })();
   }, []);
 
+  const showAlertWithNavBarReset = (title, message, callback) => {
+    Alert.alert(title, message, [
+      {
+        text: 'OK',
+        onPress: () => {
+          setTimeout(async () => {
+            await NavigationBar.setVisibilityAsync('hidden');
+            await NavigationBar.setBehaviorAsync('immersive');
+            if (callback) callback();
+          }, 300);
+        }
+      },
+    ]);
+  };
+
   const pickImage = async () => {
     let result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [4, 3],
-      quality: 1,
+      quality: 0.8, // Reduced quality for faster uploads
     });
 
     if (!result.canceled) {
@@ -74,7 +97,7 @@ export default function AddComplaintScreen({ navigation, route }) {
     let result = await ImagePicker.launchCameraAsync({
       allowsEditing: true,
       aspect: [4, 3],
-      quality: 1,
+      quality: 0.8,
     });
 
     if (!result.canceled) {
@@ -92,10 +115,10 @@ export default function AddComplaintScreen({ navigation, route }) {
 
       // Create a unique filename
       const filename = image.substring(image.lastIndexOf('/') + 1);
-      const storageRef = ref(storage, `complaint-images/${Date.now()}_${filename}`);
+      const imageRef = storageRef(storage, `complaint-images/${Date.now()}_${filename}`);
 
       // Upload the image
-      const snapshot = await uploadBytes(storageRef, blob);
+      const snapshot = await uploadBytes(imageRef, blob);
 
       // Get the download URL
       const downloadURL = await getDownloadURL(snapshot.ref);
@@ -108,6 +131,12 @@ export default function AddComplaintScreen({ navigation, route }) {
   };
 
   const handleSubmit = async () => {
+    if (!userData) {
+      Alert.alert('Error', 'User data not available. Please login again.');
+      navigation.navigate('Login');
+      return;
+    }
+
     if (!description.trim()) {
       showAlertWithNavBarReset('Error', 'Please enter a description');
       return;
@@ -119,56 +148,55 @@ export default function AddComplaintScreen({ navigation, route }) {
     try {
       const imageUrl = image ? await uploadImage() : null;
 
-      // Get user ID from various possible sources
+      // Get user ID
       const getUserID = () => {
-        // First try to get from authenticated user
         const currentUser = auth.currentUser;
         if (currentUser && currentUser.uid) {
           return currentUser.uid;
         }
-
-        // Then try from userData
         return userData.id || userData.uid || userData.userId || 'unknown-user';
       };
 
       const userId = getUserID();
 
-      // Create complaint data for Firebase with the required structure
+      // Create complaint data for Firebase Realtime Database
       const complaintData = {
         description: description.trim(),
         visibility,
         category,
         status: 'Submitted',
         votes: 0,
-        date: new Date().toISOString().split('T')[0], // Format as YYYY-MM-DD
+        date: new Date().toISOString().split('T')[0],
         submittedBy: userData.username || 'Anonymous',
         userId: userId,
-        imageUrl: imageUrl || null, // Ensure it's never undefined
-        createdAt: serverTimestamp(),
+        userEmail: userData.email || userData.username || '',
+        userName: userData.name || 'Anonymous',
+        userHostel: userData.hostel || '',
+        userRoom: userData.room || '',
+        userType: userData.userType || 'student',
+        imageUrl: imageUrl || '',
+        createdAt: serverTimestamp(), // This works for both Firestore and Realtime Database
+        updatedAt: serverTimestamp(),
       };
 
-      // Add to Firestore with timeout to handle connection issues
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('Connection timeout')), 10000);
-      });
+      // Add to Firebase Realtime Database
+      const complaintsRef = ref(database, 'complaints');
+      const newComplaintRef = push(complaintsRef);
 
-      const docRef = await Promise.race([
-        addDoc(collection(db, 'complaints'), complaintData),
-        timeoutPromise
-      ]);
+      await set(newComplaintRef, complaintData);
 
-      console.log('Complaint written with ID: ', docRef.id);
+      console.log('Complaint written with ID: ', newComplaintRef.key);
 
-      // Also store locally for offline access if needed
+      // Also store locally for offline access
       try {
         const existingComplaints = await AsyncStorage.getItem('complaints');
         const complaints = existingComplaints ? JSON.parse(existingComplaints) : [];
 
-        // Add Firebase ID to local storage
         const complaintWithId = {
           ...complaintData,
-          id: docRef.id,
-          createdAt: new Date().toISOString() // Use client date for local storage
+          id: newComplaintRef.key,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
         };
 
         complaints.push(complaintWithId);
@@ -189,19 +217,14 @@ export default function AddComplaintScreen({ navigation, route }) {
       console.error('Submission error:', error);
       setConnectionError(true);
 
-      if (error.message === 'Connection timeout') {
-        showAlertWithNavBarReset(
-          'Connection Issue',
-          'Your complaint has been saved locally and will be synced when you have a better connection.'
-        );
-
+      if (error.message === 'Connection timeout' || error.code === 'unavailable') {
         // Save to local storage for offline access
         try {
           const existingComplaints = await AsyncStorage.getItem('complaints');
           const complaints = existingComplaints ? JSON.parse(existingComplaints) : [];
 
           const offlineComplaint = {
-            id: Date.now().toString(),
+            id: `offline_${Date.now()}`,
             description: description.trim(),
             visibility,
             category,
@@ -210,29 +233,44 @@ export default function AddComplaintScreen({ navigation, route }) {
             date: new Date().toISOString().split('T')[0],
             submittedBy: userData.username || 'Anonymous',
             userId: userData.id || userData.uid || userData.userId || 'unknown-user',
-            imageUrl: image || null,
+            userEmail: userData.email || userData.username || '',
+            userName: userData.name || 'Anonymous',
+            userHostel: userData.hostel || '',
+            userRoom: userData.room || '',
+            userType: userData.userType || 'student',
+            imageUrl: image || '',
             createdAt: new Date().toISOString(),
-            offline: true // Mark as offline for later sync
+            updatedAt: new Date().toISOString(),
+            offline: true
           };
 
           complaints.push(offlineComplaint);
           await AsyncStorage.setItem('complaints', JSON.stringify(complaints));
 
-          setDescription('');
-          setVisibility('public');
-          setImage(null);
-          setCategory('Electrical');
+          showAlertWithNavBarReset(
+            'Saved Offline',
+            'Complaint saved locally. It will sync when you have internet connection.',
+            () => {
+              setDescription('');
+              setVisibility('public');
+              setImage(null);
+              setCategory('Electrical');
+              navigation.goBack();
+            }
+          );
         } catch (localError) {
           console.warn('Failed to save complaint locally:', localError);
           showAlertWithNavBarReset('Error', 'Failed to save complaint even locally');
         }
       } else {
-        showAlertWithNavBarReset('Error', 'Failed to submit complaint');
+        showAlertWithNavBarReset('Error', `Failed to submit complaint: ${error.message}`);
       }
     } finally {
       setUploading(false);
     }
   };
+
+  // ... (styles remain the same as your previous code)
 
   const styles = StyleSheet.create({
     container: {
@@ -240,10 +278,21 @@ export default function AddComplaintScreen({ navigation, route }) {
       padding: 20,
       backgroundColor: isDarkMode ? '#121212' : 'white'
     },
+    loadingContainer: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      backgroundColor: isDarkMode ? '#121212' : 'white'
+    },
+    loadingText: {
+      color: isDarkMode ? 'white' : 'black',
+      marginTop: 10
+    },
     label: {
       marginTop: 15,
       marginBottom: 5,
       fontSize: 16,
+      fontWeight: '600',
       color: isDarkMode ? 'white' : 'black'
     },
     input: {
@@ -281,7 +330,8 @@ export default function AddComplaintScreen({ navigation, route }) {
       backgroundColor: 'white'
     },
     radioText: {
-      color: isDarkMode ? 'white' : 'black'
+      color: isDarkMode ? 'white' : 'black',
+      fontSize: 14
     },
     categoryContainer: {
       flexDirection: 'row',
@@ -299,7 +349,8 @@ export default function AddComplaintScreen({ navigation, route }) {
       backgroundColor: '#007AFF'
     },
     categoryText: {
-      color: isDarkMode ? 'white' : 'black'
+      color: isDarkMode ? 'white' : 'black',
+      fontSize: 12
     },
     categoryTextSelected: {
       color: 'white'
@@ -320,15 +371,18 @@ export default function AddComplaintScreen({ navigation, route }) {
       borderRadius: 10,
       flexDirection: 'row',
       alignItems: 'center',
-      marginRight: 10
+      marginRight: 10,
+      marginBottom: 10
     },
     buttonText: {
       color: isDarkMode ? 'white' : 'black',
-      marginLeft: 5
+      marginLeft: 5,
+      fontSize: 12
     },
     buttonGroup: {
       flexDirection: 'row',
-      justifyContent: 'space-around',
+      flexWrap: 'wrap',
+      justifyContent: 'center',
       marginVertical: 15
     },
     submitButton: {
@@ -339,10 +393,12 @@ export default function AddComplaintScreen({ navigation, route }) {
     },
     selectedImageText: {
       color: isDarkMode ? 'white' : 'black',
-      fontStyle: 'italic'
+      fontStyle: 'italic',
+      textAlign: 'center',
+      marginBottom: 10
     },
     connectionError: {
-      backgroundColor: '#ffdddd',
+      backgroundColor: isDarkMode ? '#330000' : '#ffdddd',
       padding: 10,
       borderRadius: 5,
       marginBottom: 10,
@@ -351,21 +407,49 @@ export default function AddComplaintScreen({ navigation, route }) {
     },
     connectionErrorText: {
       color: '#ff0000',
-      textAlign: 'center'
-    }
+      textAlign: 'center',
+      fontSize: 12
+    },
+    uploadLoadingContainer: {
+      alignItems: 'center',
+      marginVertical: 10
+    },
   });
+
+  if (loadingUserData) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#007AFF" />
+        <Text style={styles.loadingText}>Loading user data...</Text>
+      </View>
+    );
+  }
+
+  if (!userData) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Ionicons name="alert-circle" size={50} color="#ff6b6b" />
+        <Text style={styles.loadingText}>User data not found</Text>
+        <TouchableOpacity
+          style={[styles.imageButton, { marginTop: 20 }]}
+          onPress={() => navigation.navigate('Login')}
+        >
+          <Text style={styles.buttonText}>Go to Login</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <ScrollView style={styles.container}>
       {connectionError && (
         <View style={styles.connectionError}>
           <Text style={styles.connectionErrorText}>
-            Connection issue detected. Your complaint will be saved locally.
+            ⚠️ Connection issue detected. Your complaint will be saved locally.
           </Text>
         </View>
       )}
 
-      {/* Rest of your JSX remains the same */}
       <Text style={styles.label}>Category:</Text>
       <View style={styles.categoryContainer}>
         {categories.map((cat) => (
@@ -373,6 +457,7 @@ export default function AddComplaintScreen({ navigation, route }) {
             key={cat}
             style={[styles.categoryButton, category === cat && styles.categoryButtonSelected]}
             onPress={() => setCategory(cat)}
+            disabled={uploading}
           >
             <Text style={[styles.categoryText, category === cat && styles.categoryTextSelected]}>
               {cat}
@@ -385,10 +470,12 @@ export default function AddComplaintScreen({ navigation, route }) {
       <TextInput
         style={styles.input}
         placeholder="Describe your issue in detail..."
+        placeholderTextColor={isDarkMode ? '#aaa' : '#888'}
         value={description}
         onChangeText={setDescription}
         multiline
-        placeholderTextColor={isDarkMode ? '#aaa' : '#888'}
+        numberOfLines={4}
+        editable={!uploading}
       />
 
       <Text style={styles.label}>Visibility:</Text>
@@ -396,6 +483,7 @@ export default function AddComplaintScreen({ navigation, route }) {
         <TouchableOpacity
           style={[styles.radioButton, visibility === 'public' && styles.radioButtonSelected]}
           onPress={() => setVisibility('public')}
+          disabled={uploading}
         >
           {visibility === 'public' && <View style={styles.radioInner} />}
         </TouchableOpacity>
@@ -406,6 +494,7 @@ export default function AddComplaintScreen({ navigation, route }) {
         <TouchableOpacity
           style={[styles.radioButton, visibility === 'private' && styles.radioButtonSelected]}
           onPress={() => setVisibility('private')}
+          disabled={uploading}
         >
           {visibility === 'private' && <View style={styles.radioInner} />}
         </TouchableOpacity>
@@ -415,10 +504,14 @@ export default function AddComplaintScreen({ navigation, route }) {
       <Text style={styles.label}>Add Photo (Optional):</Text>
       <View style={styles.imageContainer}>
         {image && (
-          <Image
-            source={{ uri: image }}
-            style={styles.image}
-          />
+          <>
+            <Image
+              source={{ uri: image }}
+              style={styles.image}
+              resizeMode="cover"
+            />
+            <Text style={styles.selectedImageText}>Image selected</Text>
+          </>
         )}
 
         <View style={styles.buttonGroup}>
@@ -429,10 +522,10 @@ export default function AddComplaintScreen({ navigation, route }) {
           >
             <Ionicons
               name="image"
-              size={20}
+              size={16}
               color={isDarkMode ? 'white' : 'black'}
             />
-            <Text style={styles.buttonText}> Choose Photo</Text>
+            <Text style={styles.buttonText}>Choose Photo</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -442,20 +535,42 @@ export default function AddComplaintScreen({ navigation, route }) {
           >
             <Ionicons
               name="camera"
-              size={20}
+              size={16}
               color={isDarkMode ? 'white' : 'black'}
             />
-            <Text style={styles.buttonText}> Take Photo</Text>
+            <Text style={styles.buttonText}>Take Photo</Text>
           </TouchableOpacity>
+
+          {image && (
+            <TouchableOpacity
+              style={[styles.imageButton, { backgroundColor: isDarkMode ? '#ff4444' : '#ff6b6b' }]}
+              onPress={() => setImage(null)}
+              disabled={uploading}
+            >
+              <Ionicons
+                name="close"
+                size={16}
+                color="white"
+              />
+              <Text style={[styles.buttonText, { color: 'white' }]}>Remove</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
+
+      {uploading && (
+        <View style={styles.uploadLoadingContainer}>
+          <ActivityIndicator size="small" color="#007AFF" />
+          <Text style={styles.loadingText}>Uploading your complaint...</Text>
+        </View>
+      )}
 
       <View style={styles.submitButton}>
         <Button
           title={uploading ? "Submitting..." : "Submit Complaint"}
           onPress={handleSubmit}
           color="#007AFF"
-          disabled={uploading}
+          disabled={uploading || !description.trim()}
         />
       </View>
     </ScrollView>

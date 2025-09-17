@@ -1,57 +1,96 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { useColorScheme } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useIsFocused } from '@react-navigation/native';
 import { ThemeContext } from '../context/ThemeContext';
-
-const mockComplaints = [
-  {
-    id: '1',
-    description: 'Light not working in Room 101',
-    status: 'Submitted',
-    visibility: 'private',
-    votes: 1,
-    category: 'Electrical',
-    date: '2023-05-15'
-  },
-  {
-    id: '2',
-    description: 'Water leakage in Block A',
-    status: 'Approved',
-    visibility: 'public',
-    votes: 6,
-    category: 'Plumbing',
-    date: '2023-05-16'
-  },
-  {
-    id: '3',
-    description: 'Broken window in common room',
-    status: 'Fixed',
-    visibility: 'public',
-    votes: 12,
-    category: 'Infrastructure',
-    date: '2023-05-10'
-  },
-  {
-    id: '4',
-    description: 'Faulty fan in Room 205',
-    status: 'Submitted',
-    visibility: 'public',
-    votes: 2,
-    category: 'Electrical',
-    date: '2023-05-18'
-  },
-];
+import { ref, onValue, off, get } from 'firebase/database';
+import { database } from '../firebase/config';
 
 export default function HomeScreen({ navigation, route }) {
   const { userType, userData } = route.params;
   const [activeTab, setActiveTab] = useState('Submitted');
-  const [complaints, setComplaints] = useState(mockComplaints);
+  const [complaints, setComplaints] = useState([]);
   const [votedComplaints, setVotedComplaints] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const { isDarkMode } = useContext(ThemeContext);
   const isFocused = useIsFocused();
+
+  // Load complaints from Firebase Realtime Database
+  useEffect(() => {
+    const loadComplaints = async () => {
+      if (!isFocused) return;
+
+      setLoading(true);
+      try {
+        const complaintsRef = ref(database, 'complaints');
+
+        // Set up realtime listener
+        onValue(complaintsRef, (snapshot) => {
+          const complaintsData = snapshot.val();
+          const complaintsArray = [];
+
+          if (complaintsData) {
+            Object.keys(complaintsData).forEach(key => {
+              complaintsArray.push({
+                id: key,
+                ...complaintsData[key]
+              });
+            });
+          }
+
+          // Sort by date (newest first) and then by votes
+          complaintsArray.sort((a, b) => {
+            const dateA = new Date(a.createdAt || a.date || 0);
+            const dateB = new Date(b.createdAt || b.date || 0);
+            return dateB - dateA;
+          });
+
+          setComplaints(complaintsArray);
+          setLoading(false);
+          setRefreshing(false);
+        }, (error) => {
+          console.error('Error loading complaints:', error);
+          setLoading(false);
+          setRefreshing(false);
+
+          // Fallback to local storage if Firebase fails
+          loadComplaintsFromLocal();
+        });
+
+      } catch (error) {
+        console.error('Error setting up listener:', error);
+        setLoading(false);
+        setRefreshing(false);
+        loadComplaintsFromLocal();
+      }
+    };
+
+    const loadComplaintsFromLocal = async () => {
+      try {
+        const localComplaints = await AsyncStorage.getItem('complaints');
+        if (localComplaints) {
+          const parsedComplaints = JSON.parse(localComplaints);
+          setComplaints(parsedComplaints);
+        }
+      } catch (error) {
+        console.error('Error loading local complaints:', error);
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    };
+
+    loadComplaints();
+
+    // Clean up listener when component unmounts
+    return () => {
+      const complaintsRef = ref(database, 'complaints');
+      off(complaintsRef);
+    };
+  }, [isFocused]);
 
   useEffect(() => {
     const loadVotedComplaints = async () => {
@@ -59,7 +98,6 @@ export default function HomeScreen({ navigation, route }) {
         const votes = await AsyncStorage.getItem('votedComplaints');
         if (votes) {
           const parsedVotes = JSON.parse(votes);
-          // Ensure we have an object with proper string values
           const validatedVotes = {};
           Object.keys(parsedVotes).forEach(key => {
             const value = parsedVotes[key];
@@ -77,6 +115,39 @@ export default function HomeScreen({ navigation, route }) {
     }
   }, [isFocused]);
 
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      // Force reload from Firebase
+      const complaintsRef = ref(database, 'complaints');
+      const snapshot = await get(complaintsRef);
+
+      if (snapshot.exists()) {
+        const complaintsData = snapshot.val();
+        const complaintsArray = [];
+
+        Object.keys(complaintsData).forEach(key => {
+          complaintsArray.push({
+            id: key,
+            ...complaintsData[key]
+          });
+        });
+
+        complaintsArray.sort((a, b) => {
+          const dateA = new Date(a.createdAt || a.date || 0);
+          const dateB = new Date(b.createdAt || b.date || 0);
+          return dateB - dateA;
+        });
+
+        setComplaints(complaintsArray);
+      }
+    } catch (error) {
+      console.error('Error refreshing:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   const filteredComplaints = complaints.filter(complaint => {
     // Students can only see public complaints
     if (userType === 'student' && complaint.visibility !== 'public') {
@@ -89,10 +160,8 @@ export default function HomeScreen({ navigation, route }) {
     if (activeTab === 'Fixed') return complaint.status === 'Fixed';
 
     return true;
-  })
-    .sort((a, b) => b.votes - a.votes);
+  }).sort((a, b) => b.votes - a.votes);
 
-  // Modified handleVote function
   const handleVote = async (complaintId, voteType) => {
     if (userType !== 'student') return;
 
@@ -105,21 +174,18 @@ export default function HomeScreen({ navigation, route }) {
         if (c.id === complaintId) {
           let voteChange = 0;
 
-          // Toggle or switch vote
           if (!currentVote) {
             voteChange = voteType === 'up' ? 1 : -1;
             updatedVotes[complaintId] = voteType;
           } else if (currentVote === voteType) {
-            // Unvote (remove existing vote)
             voteChange = voteType === 'up' ? -1 : 1;
             delete updatedVotes[complaintId];
           } else {
-            // Switch vote
             voteChange = voteType === 'up' ? 2 : -2;
             updatedVotes[complaintId] = voteType;
           }
 
-          return { ...c, votes: c.votes + voteChange };
+          return { ...c, votes: (c.votes || 0) + voteChange };
         }
         return c;
       });
@@ -145,9 +211,11 @@ export default function HomeScreen({ navigation, route }) {
             name={userVote === 'up' ? 'thumbs-up' : 'thumbs-up-outline'}
             size={20}
             color={userVote === 'up' ? '#4CAF50' : (isDarkMode ? '#aaa' : '#888')} />
-        </TouchableOpacity><Text style={[styles.voteCount, { color: isDarkMode ? 'white' : 'black' }]}>
-          {item.votes}
-        </Text><TouchableOpacity
+        </TouchableOpacity>
+        <Text style={[styles.voteCount, { color: isDarkMode ? 'white' : 'black' }]}>
+          {item.votes || 0}
+        </Text>
+        <TouchableOpacity
           onPress={() => handleVote(item.id, 'down')}
         >
           <Ionicons
@@ -159,6 +227,21 @@ export default function HomeScreen({ navigation, route }) {
     );
   };
 
+  const formatDate = (dateString) => {
+    if (!dateString) return 'No date';
+
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      });
+    } catch (error) {
+      return dateString;
+    }
+  };
+
   const renderComplaintItem = ({ item }) => (
     <View
       style={[
@@ -167,16 +250,37 @@ export default function HomeScreen({ navigation, route }) {
       ]}
     >
       <View style={styles.complaintHeader}>
-        <TouchableOpacity onPress={() => navigation.navigate('ComplaintDetail', { complaint: item, userType })}>
-          <Text style={[styles.complaintCategory, { color: '#007AFF' }]}>{item.category}</Text>
+        <TouchableOpacity onPress={() => navigation.navigate('ComplaintDetail', {
+          complaint: item,
+          userType,
+          userData
+        })}>
+          <Text style={[styles.complaintCategory, { color: '#007AFF' }]}>
+            {item.category || 'Other'}
+          </Text>
         </TouchableOpacity>
-        <Text style={[styles.complaintDate, { color: isDarkMode ? '#aaa' : '#666' }]}>{item.date}</Text>
+        <Text style={[styles.complaintDate, { color: isDarkMode ? '#aaa' : '#666' }]}>
+          {formatDate(item.date || item.createdAt)}
+        </Text>
       </View>
-      <TouchableOpacity onPress={() => navigation.navigate('ComplaintDetail', { complaint: item, userType })}>
+
+      <TouchableOpacity onPress={() => navigation.navigate('ComplaintDetail', {
+        complaint: item,
+        userType,
+        userData
+      })}>
         <Text style={[styles.complaintDescription, { color: isDarkMode ? 'white' : 'black' }]}>
           {item.description}
         </Text>
+
+        {/* Show submitted by information */}
+        <Text style={[styles.submittedBy, { color: isDarkMode ? '#aaa' : '#666' }]}>
+          Submitted by: {item.userName || item.submittedBy || 'Anonymous'}
+          {item.userHostel && ` • ${item.userHostel}`}
+          {item.userRoom && ` • Room ${item.userRoom}`}
+        </Text>
       </TouchableOpacity>
+
       <View style={styles.complaintFooter}>
         <TouchableOpacity style={[
           styles.statusBadge,
@@ -185,16 +289,20 @@ export default function HomeScreen({ navigation, route }) {
             borderColor: isDarkMode ? '#333' : '#ddd'
           }
         ]}
-          onPress={() => navigation.navigate('ComplaintDetail', { complaint: item, userType })}
+          onPress={() => navigation.navigate('ComplaintDetail', {
+            complaint: item,
+            userType,
+            userData
+          })}
         >
-          <Text style={styles.statusText}>{item.status}</Text>
+          <Text style={styles.statusText}>{item.status || 'Submitted'}</Text>
         </TouchableOpacity>
 
         <View style={styles.voteContainer}>
           {item.status === 'Submitted' && userType === 'student'
             ? renderVoteButtons(item)
             : <Text style={[styles.voteCount, { color: isDarkMode ? 'white' : 'black' }]}>
-              Votes: {item.votes}
+              Votes: {item.votes || 0}
             </Text>
           }
         </View>
@@ -210,6 +318,26 @@ export default function HomeScreen({ navigation, route }) {
       default: return isDark ? '#333' : '#eee';
     }
   };
+
+  const renderEmptyState = () => (
+    <View style={styles.emptyState}>
+      <Ionicons
+        name="document-text-outline"
+        size={64}
+        color={isDarkMode ? '#555' : '#ccc'}
+      />
+      <Text style={[styles.emptyStateText, { color: isDarkMode ? '#aaa' : '#666' }]}>
+        {loading ? 'Loading complaints...' : 'No complaints found'}
+      </Text>
+      {!loading && (
+        <Text style={[styles.emptyStateSubtext, { color: isDarkMode ? '#888' : '#999' }]}>
+          {activeTab === 'Submitted' ? 'No submitted complaints' :
+            activeTab === 'Approved' ? 'No approved complaints' :
+              'No fixed complaints'}
+        </Text>
+      )}
+    </View>
+  );
 
   const styles = StyleSheet.create({
     container: {
@@ -255,14 +383,20 @@ export default function HomeScreen({ navigation, route }) {
       marginBottom: 5
     },
     complaintCategory: {
-      fontWeight: 'bold'
+      fontWeight: 'bold',
+      fontSize: 14
     },
     complaintDate: {
       fontSize: 12
     },
     complaintDescription: {
       fontSize: 16,
-      marginBottom: 10
+      marginBottom: 8
+    },
+    submittedBy: {
+      fontSize: 12,
+      marginBottom: 10,
+      fontStyle: 'italic'
     },
     complaintFooter: {
       flexDirection: 'row',
@@ -285,7 +419,8 @@ export default function HomeScreen({ navigation, route }) {
       gap: 8
     },
     voteCount: {
-      marginHorizontal: 5
+      marginHorizontal: 5,
+      fontSize: 14
     },
     fab: {
       position: 'absolute',
@@ -298,8 +433,40 @@ export default function HomeScreen({ navigation, route }) {
       alignItems: 'center',
       justifyContent: 'center',
       elevation: 5
+    },
+    emptyState: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 40
+    },
+    emptyStateText: {
+      fontSize: 18,
+      textAlign: 'center',
+      marginTop: 16,
+      marginBottom: 8
+    },
+    emptyStateSubtext: {
+      fontSize: 14,
+      textAlign: 'center'
+    },
+    loadingContainer: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center'
     }
   });
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#007AFF" />
+        <Text style={[styles.emptyStateText, { color: isDarkMode ? 'white' : 'black' }]}>
+          Loading complaints...
+        </Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -311,8 +478,7 @@ export default function HomeScreen({ navigation, route }) {
         >
           <Text style={[
             styles.tabText,
-            activeTab === 'Submitted' && styles.activeTabText,
-            { color: isDarkMode ? 'white' : 'black' }
+            activeTab === 'Submitted' && styles.activeTabText
           ]}>
             Submitted
           </Text>
@@ -323,8 +489,7 @@ export default function HomeScreen({ navigation, route }) {
         >
           <Text style={[
             styles.tabText,
-            activeTab === 'Approved' && styles.activeTabText,
-            { color: isDarkMode ? 'white' : 'black' }
+            activeTab === 'Approved' && styles.activeTabText
           ]}>
             Approved
           </Text>
@@ -335,8 +500,7 @@ export default function HomeScreen({ navigation, route }) {
         >
           <Text style={[
             styles.tabText,
-            activeTab === 'Fixed' && styles.activeTabText,
-            { color: isDarkMode ? 'white' : 'black' }
+            activeTab === 'Fixed' && styles.activeTabText
           ]}>
             Fixed
           </Text>
@@ -349,13 +513,16 @@ export default function HomeScreen({ navigation, route }) {
         keyExtractor={(item) => item.id}
         renderItem={renderComplaintItem}
         contentContainerStyle={{ paddingBottom: 80 }}
+        ListEmptyComponent={renderEmptyState}
+        refreshing={refreshing}
+        onRefresh={handleRefresh}
       />
 
       {/* Add Complaint Button (for students) */}
       {userType === 'student' && (
         <TouchableOpacity
           style={styles.fab}
-          onPress={() => navigation.navigate('AddComplaint')}
+          onPress={() => navigation.navigate('AddComplaint', { userData })}
         >
           <Ionicons name="add" size={24} color="white" />
         </TouchableOpacity>
