@@ -1,14 +1,11 @@
-// Import the functions you need from the SDKs you need
+// firebase.js (or config.js)
 import { initializeApp } from "firebase/app";
-import { getAnalytics } from "firebase/analytics";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
+import { getDatabase } from "firebase/database";
 
-// Your web app's Firebase configuration
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
   apiKey: "AIzaSyD5Fmu_LWjiZXR_HdswUUbvW4UOIfQTHJg",
   authDomain: "fixora-be66c.firebaseapp.com",
+  databaseURL: "https://fixora-be66c-default-rtdb.asia-southeast1.firebasedatabase.app",
   projectId: "fixora-be66c",
   storageBucket: "fixora-be66c.firebasestorage.app",
   messagingSenderId: "721607078009",
@@ -18,4 +15,6 @@ const firebaseConfig = {
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
-const analytics = getAnalytics(app);
+const database = getDatabase(app);
+
+export { database };
