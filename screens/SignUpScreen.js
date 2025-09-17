@@ -26,7 +26,21 @@ export default function SignUpScreen({ navigation }) {
     const colorScheme = useColorScheme();
     const darkMode = colorScheme === 'dark';
 
+    // ✅ Email validation function (new format)
+    const validateEmail = (email) => {
+        const regex = /^20\d{2}\/(ENG|AGR|TEC)\/\d{3}@gmail\.com$/;
+        return regex.test(email);
+    };
+
     const handleSignUp = () => {
+        if (!validateEmail(email)) {
+            Alert.alert(
+                "Invalid Email",
+                "Email must be in the format: 20XX/(ENG|AGR|TEC)/XXX/@gmail.com"
+            );
+            return;
+        }
+
         if (password !== confirmPassword) {
             Alert.alert("Error", "Passwords don't match");
             return;
@@ -154,7 +168,7 @@ export default function SignUpScreen({ navigation }) {
                 />
                 <TextInput
                     style={styles.input}
-                    placeholder="Email"
+                    placeholder="Email (20XX/XXX/ENG@gmail.com)"
                     value={email}
                     onChangeText={setEmail}
                     keyboardType="email-address"
@@ -254,7 +268,7 @@ export default function SignUpScreen({ navigation }) {
                 <Button
                     title="Sign Up"
                     onPress={handleSignUp}
-                    color="#007AFF"
+                    color="#000000"
                 />
             </View>
 
