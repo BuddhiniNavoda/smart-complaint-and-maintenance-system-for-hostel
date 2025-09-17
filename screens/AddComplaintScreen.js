@@ -5,6 +5,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ThemeContext } from '../context/ThemeContext';
 import * as ImagePicker from 'expo-image-picker';
 import * as NavigationBar from 'expo-navigation-bar';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { db, storage } from '../firebase/config';
+import { getAuth } from 'firebase/auth';
 
 export default function AddComplaintScreen({ navigation, route }) {
   const [description, setDescription] = useState('');
@@ -12,9 +16,11 @@ export default function AddComplaintScreen({ navigation, route }) {
   const [category, setCategory] = useState('Electrical');
   const [image, setImage] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [connectionError, setConnectionError] = useState(false);
   const { isDarkMode } = useContext(ThemeContext);
 
   const { userData } = route.params;
+  const auth = getAuth();
 
   const categories = [
     'Electrical',
@@ -26,7 +32,7 @@ export default function AddComplaintScreen({ navigation, route }) {
     'Other'
   ];
 
-  const showAlertWithNavBarReset = (title, message) => {
+  const showAlertWithNavBarReset = (title, message, callback) => {
     Alert.alert(title, message, [
       {
         text: 'OK',
@@ -35,7 +41,7 @@ export default function AddComplaintScreen({ navigation, route }) {
             await NavigationBar.setVisibilityAsync('hidden');
             await NavigationBar.setBehaviorAsync('immersive');
             console.log('Nav bar hidden');
-            callback();
+            if (callback) callback();
           }, 300);
         }
       },
@@ -79,17 +85,25 @@ export default function AddComplaintScreen({ navigation, route }) {
   const uploadImage = async () => {
     if (!image) return null;
 
-    setUploading(true);
     try {
-      // In a real app, you would upload to a server here
-      // For demo, we'll just return the local URI
-      return image;
+      // Convert image URI to blob
+      const response = await fetch(image);
+      const blob = await response.blob();
+
+      // Create a unique filename
+      const filename = image.substring(image.lastIndexOf('/') + 1);
+      const storageRef = ref(storage, `complaint-images/${Date.now()}_${filename}`);
+
+      // Upload the image
+      const snapshot = await uploadBytes(storageRef, blob);
+
+      // Get the download URL
+      const downloadURL = await getDownloadURL(snapshot.ref);
+      return downloadURL;
     } catch (error) {
       console.error('Upload error:', error);
       Alert.alert('Upload failed', 'Could not upload image');
       return null;
-    } finally {
-      setUploading(false);
     }
   };
 
@@ -100,27 +114,68 @@ export default function AddComplaintScreen({ navigation, route }) {
     }
 
     setUploading(true);
+    setConnectionError(false);
 
     try {
       const imageUrl = image ? await uploadImage() : null;
 
+      // Get user ID from various possible sources
+      const getUserID = () => {
+        // First try to get from authenticated user
+        const currentUser = auth.currentUser;
+        if (currentUser && currentUser.uid) {
+          return currentUser.uid;
+        }
+
+        // Then try from userData
+        return userData.id || userData.uid || userData.userId || 'unknown-user';
+      };
+
+      const userId = getUserID();
+
+      // Create complaint data for Firebase with the required structure
       const complaintData = {
-        id: Date.now().toString(),
-        description,
+        description: description.trim(),
         visibility,
         category,
         status: 'Submitted',
         votes: 0,
-        date: new Date().toISOString().split('T')[0],
-        submittedBy: userData.username,
-        imageUrl,
-        createdAt: new Date().toISOString(),
+        date: new Date().toISOString().split('T')[0], // Format as YYYY-MM-DD
+        submittedBy: userData.username || 'Anonymous',
+        userId: userId,
+        imageUrl: imageUrl || null, // Ensure it's never undefined
+        createdAt: serverTimestamp(),
       };
 
-      const existingComplaints = await AsyncStorage.getItem('complaints');
-      const complaints = existingComplaints ? JSON.parse(existingComplaints) : [];
-      complaints.push(complaintData);
-      await AsyncStorage.setItem('complaints', JSON.stringify(complaints));
+      // Add to Firestore with timeout to handle connection issues
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Connection timeout')), 10000);
+      });
+
+      const docRef = await Promise.race([
+        addDoc(collection(db, 'complaints'), complaintData),
+        timeoutPromise
+      ]);
+
+      console.log('Complaint written with ID: ', docRef.id);
+
+      // Also store locally for offline access if needed
+      try {
+        const existingComplaints = await AsyncStorage.getItem('complaints');
+        const complaints = existingComplaints ? JSON.parse(existingComplaints) : [];
+
+        // Add Firebase ID to local storage
+        const complaintWithId = {
+          ...complaintData,
+          id: docRef.id,
+          createdAt: new Date().toISOString() // Use client date for local storage
+        };
+
+        complaints.push(complaintWithId);
+        await AsyncStorage.setItem('complaints', JSON.stringify(complaints));
+      } catch (localError) {
+        console.warn('Failed to save complaint locally:', localError);
+      }
 
       showAlertWithNavBarReset('Success', 'Complaint submitted successfully', () => {
         setDescription('');
@@ -130,10 +185,50 @@ export default function AddComplaintScreen({ navigation, route }) {
         navigation.goBack();
       });
 
-
     } catch (error) {
       console.error('Submission error:', error);
-      showAlertWithNavBarReset('Error', 'Failed to submit complaint');
+      setConnectionError(true);
+
+      if (error.message === 'Connection timeout') {
+        showAlertWithNavBarReset(
+          'Connection Issue',
+          'Your complaint has been saved locally and will be synced when you have a better connection.'
+        );
+
+        // Save to local storage for offline access
+        try {
+          const existingComplaints = await AsyncStorage.getItem('complaints');
+          const complaints = existingComplaints ? JSON.parse(existingComplaints) : [];
+
+          const offlineComplaint = {
+            id: Date.now().toString(),
+            description: description.trim(),
+            visibility,
+            category,
+            status: 'Submitted (Offline)',
+            votes: 0,
+            date: new Date().toISOString().split('T')[0],
+            submittedBy: userData.username || 'Anonymous',
+            userId: userData.id || userData.uid || userData.userId || 'unknown-user',
+            imageUrl: image || null,
+            createdAt: new Date().toISOString(),
+            offline: true // Mark as offline for later sync
+          };
+
+          complaints.push(offlineComplaint);
+          await AsyncStorage.setItem('complaints', JSON.stringify(complaints));
+
+          setDescription('');
+          setVisibility('public');
+          setImage(null);
+          setCategory('Electrical');
+        } catch (localError) {
+          console.warn('Failed to save complaint locally:', localError);
+          showAlertWithNavBarReset('Error', 'Failed to save complaint even locally');
+        }
+      } else {
+        showAlertWithNavBarReset('Error', 'Failed to submit complaint');
+      }
     } finally {
       setUploading(false);
     }
@@ -224,7 +319,12 @@ export default function AddComplaintScreen({ navigation, route }) {
       padding: 10,
       borderRadius: 10,
       flexDirection: 'row',
+      alignItems: 'center',
       marginRight: 10
+    },
+    buttonText: {
+      color: isDarkMode ? 'white' : 'black',
+      marginLeft: 5
     },
     buttonGroup: {
       flexDirection: 'row',
@@ -240,11 +340,32 @@ export default function AddComplaintScreen({ navigation, route }) {
     selectedImageText: {
       color: isDarkMode ? 'white' : 'black',
       fontStyle: 'italic'
+    },
+    connectionError: {
+      backgroundColor: '#ffdddd',
+      padding: 10,
+      borderRadius: 5,
+      marginBottom: 10,
+      borderLeftWidth: 4,
+      borderLeftColor: '#ff0000'
+    },
+    connectionErrorText: {
+      color: '#ff0000',
+      textAlign: 'center'
     }
   });
 
   return (
     <ScrollView style={styles.container}>
+      {connectionError && (
+        <View style={styles.connectionError}>
+          <Text style={styles.connectionErrorText}>
+            Connection issue detected. Your complaint will be saved locally.
+          </Text>
+        </View>
+      )}
+
+      {/* Rest of your JSX remains the same */}
       <Text style={styles.label}>Category:</Text>
       <View style={styles.categoryContainer}>
         {categories.map((cat) => (

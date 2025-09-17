@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, Button, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, TextInput, Button, StyleSheet, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { useColorScheme } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
+import { ref, set } from 'firebase/database';
+import { database } from '../firebase/config';
 
 const hostelBlocks = [
     'Block A',
@@ -23,27 +25,65 @@ export default function SignUpScreen({ navigation }) {
     const [room, setRoom] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+    const [loading, setLoading] = useState(false);
     const colorScheme = useColorScheme();
     const darkMode = colorScheme === 'dark';
 
-    const handleSignUp = () => {
+    const handleSignUp = async () => {
+        // Basic validation
+        if (!name || !email || !password || !confirmPassword || !room) {
+            Alert.alert("Error", "Please fill in all fields");
+            return;
+        }
+
         if (password !== confirmPassword) {
             Alert.alert("Error", "Passwords don't match");
             return;
         }
 
-        const userData = {
-            name,
-            email,
-            password,
-            hostel,
-            room,
-            userType: 'student'
-        };
+        if (password.length < 6) {
+            Alert.alert("Error", "Password should be at least 6 characters long");
+            return;
+        }
 
-        console.log('Sign Up Data:', userData);
-        Alert.alert("Success", "Account created successfully (check console for data)");
-        navigation.navigate('Login');
+        setLoading(true);
+
+        try {
+            // Generate a unique user ID (you might want to use a better method)
+            const userId = Date.now().toString();
+
+            // Prepare user data
+            const userData = {
+                id: userId,
+                name,
+                email,
+                password, // Note: In a real app, you should hash the password
+                hostel,
+                room,
+                userType: 'student',
+                createdAt: new Date().toISOString()
+            };
+
+            // Save to Firebase Realtime Database
+            await set(ref(database, 'users/' + userId), userData);
+
+            console.log('User data saved to Firebase:', userData);
+            Alert.alert("Success", "Account created successfully!");
+
+            // Reset form
+            setName('');
+            setEmail('');
+            setPassword('');
+            setConfirmPassword('');
+            setRoom('');
+
+            navigation.navigate('Login');
+        } catch (error) {
+            console.error('Error saving user data:', error);
+            Alert.alert("Error", "Failed to create account. Please try again.");
+        } finally {
+            setLoading(false);
+        }
     };
 
     const styles = StyleSheet.create({
@@ -123,6 +163,9 @@ export default function SignUpScreen({ navigation }) {
             fontSize: 12,
             marginTop: 5,
             fontStyle: 'italic'
+        },
+        loader: {
+            marginTop: 20
         }
     });
 
@@ -142,6 +185,7 @@ export default function SignUpScreen({ navigation }) {
                     placeholder="Full Name"
                     value={name}
                     onChangeText={setName}
+                    placeholderTextColor={darkMode ? '#aaa' : '#888'}
                 />
             </View>
 
@@ -159,6 +203,7 @@ export default function SignUpScreen({ navigation }) {
                     onChangeText={setEmail}
                     keyboardType="email-address"
                     autoCapitalize="none"
+                    placeholderTextColor={darkMode ? '#aaa' : '#888'}
                 />
             </View>
 
@@ -175,6 +220,7 @@ export default function SignUpScreen({ navigation }) {
                     value={password}
                     onChangeText={setPassword}
                     secureTextEntry={!showPassword}
+                    placeholderTextColor={darkMode ? '#aaa' : '#888'}
                 />
                 <TouchableOpacity
                     style={styles.passwordToggle}
@@ -201,6 +247,7 @@ export default function SignUpScreen({ navigation }) {
                     value={confirmPassword}
                     onChangeText={setConfirmPassword}
                     secureTextEntry={!showConfirmPassword}
+                    placeholderTextColor={darkMode ? '#aaa' : '#888'}
                 />
                 <TouchableOpacity
                     style={styles.passwordToggle}
@@ -247,15 +294,21 @@ export default function SignUpScreen({ navigation }) {
                     value={room}
                     onChangeText={setRoom}
                     keyboardType="numeric"
+                    placeholderTextColor={darkMode ? '#aaa' : '#888'}
                 />
             </View>
 
             <View style={styles.buttonContainer}>
-                <Button
-                    title="Sign Up"
-                    onPress={handleSignUp}
-                    color="#007AFF"
-                />
+                {loading ? (
+                    <ActivityIndicator size="small" color="#007AFF" style={styles.loader} />
+                ) : (
+                    <Button
+                        title="Sign Up"
+                        onPress={handleSignUp}
+                        color="#007AFF"
+                        disabled={loading}
+                    />
+                )}
             </View>
 
             <Text style={styles.loginText}>

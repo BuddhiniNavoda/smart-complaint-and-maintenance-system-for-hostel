@@ -1,39 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, TextInput, Button, StyleSheet, Alert, TouchableOpacity } from 'react-native';
+import { View, Text, TextInput, Button, StyleSheet, Alert, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useColorScheme } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
-
-// Predefined user data
-const users = [
-  {
-    username: 'student',
-    password: 'student123',
-    userType: 'student',
-    name: 'John Student',
-    hostel: 'Block A',
-    room: '101'
-  },
-  {
-    username: 'warden',
-    password: 'warden123',
-    userType: 'warden',
-    name: 'Dr. Smith Warden',
-    hostel: 'Main Building'
-  },
-  {
-    username: 'staff',
-    password: 'staff123',
-    userType: 'staff',
-    name: 'Mike Maintenance',
-    department: 'Electrical'
-  },
-];
+import { ref, get } from 'firebase/database';
+import { database } from '../firebase/config';
 
 export default function LoginScreen({ navigation }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
   const colorScheme = useColorScheme();
   const darkMode = colorScheme === 'dark';
 
@@ -70,41 +47,90 @@ export default function LoginScreen({ navigation }) {
     </View>
   ), [darkMode, showPassword]);
 
-
   const handleLogin = async () => {
-    // Find user in predefined data
-    const user = users.find(u =>
-      u.username === username && u.password === password
-    );
+    if (!username || !password) {
+      Alert.alert("Error", "Please enter both username and password");
+      return;
+    }
 
-    if (user) {
-      try {
-        // Save user data to AsyncStorage
-        await AsyncStorage.setItem('userData', JSON.stringify({
-          userType: user.userType,
-          userData: user
-        }));
+    setLoading(true);
 
-        // Navigate to Home with user data
-        navigation.navigate('Main', {
-          userType: user.userType,
-          userData: user
+    try {
+      // Get all users and filter locally (no index required)
+      const usersRef = ref(database, 'users');
+      const snapshot = await get(usersRef);
+
+      if (snapshot.exists()) {
+        const usersData = snapshot.val();
+        let userFound = null;
+        let userId = null;
+
+        // Find user by email in the client side
+        Object.keys(usersData).forEach(key => {
+          const user = usersData[key];
+          if (user.email && user.email.toLowerCase() === username.toLowerCase()) {
+            userFound = user;
+            userId = key;
+          }
         });
-      } catch (error) {
-        Alert.alert("Error", "Failed to save login data");
-        console.error('Error saving user data:', error);
+
+        if (userFound && userFound.password === password) {
+          // Save user data to AsyncStorage
+          const userToStore = {
+            id: userId,
+            username: userFound.email,
+            name: userFound.name,
+            userType: userFound.userType,
+            hostel: userFound.hostel,
+            room: userFound.room,
+            email: userFound.email
+          };
+
+          await AsyncStorage.setItem('userData', JSON.stringify(userToStore));
+
+          // Navigate to Home with user data
+          navigation.navigate('Main', {
+            userType: userFound.userType,
+            userData: userToStore
+          });
+
+          Alert.alert("Success", "Login successful!");
+        } else if (userFound) {
+          Alert.alert("Login Failed", "Invalid password");
+        } else {
+          Alert.alert("Login Failed", "User not found");
+        }
+      } else {
+        Alert.alert("Login Failed", "No users found in database");
       }
-    } else {
-      Alert.alert("Login Failed", "Invalid username or password");
+    } catch (error) {
+      console.error('Login error:', error);
+      Alert.alert("Error", "Failed to login. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await AsyncStorage.removeItem('userData');
+      Alert.alert("Success", "Logged out successfully");
+    } catch (error) {
+      console.error('Logout error:', error);
+      Alert.alert("Error", "Failed to logout");
     }
   };
 
   useEffect(() => {
     const checkLoggedIn = async () => {
       try {
-        const userData = await AsyncStorage.getItem('userData');
-        if (userData) {
-          navigation.navigate('Main', JSON.parse(userData));
+        const userDataString = await AsyncStorage.getItem('userData');
+        if (userDataString) {
+          const userData = JSON.parse(userDataString);
+          navigation.navigate('Main', {
+            userType: userData.userType,
+            userData: userData
+          });
         }
       } catch (error) {
         console.error('Error reading user data:', error);
@@ -167,6 +193,9 @@ export default function LoginScreen({ navigation }) {
       color: '#007AFF',
       fontWeight: 'bold'
     },
+    loader: {
+      marginVertical: 20
+    }
   });
 
   return (
@@ -175,11 +204,9 @@ export default function LoginScreen({ navigation }) {
 
       <InputWithIcon
         icon="person"
-        placeholder="Username"
+        placeholder="Email (Username)"
         value={username}
         onChangeText={setUsername}
-        autoCapitalize="none"
-        autoCorrect={false}
       />
 
       <InputWithIcon
@@ -191,11 +218,16 @@ export default function LoginScreen({ navigation }) {
       />
 
       <View style={styles.buttonContainer}>
-        <Button
-          title="Login"
-          onPress={handleLogin}
-          color="#007AFF"
-        />
+        {loading ? (
+          <ActivityIndicator size="small" color="#007AFF" style={styles.loader} />
+        ) : (
+          <Button
+            title="Login"
+            onPress={handleLogin}
+            color="#007AFF"
+            disabled={loading}
+          />
+        )}
       </View>
 
       <Text style={styles.signupText}>
