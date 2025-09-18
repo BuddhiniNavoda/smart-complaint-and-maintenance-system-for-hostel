@@ -204,7 +204,7 @@ export default function LoginScreen({ navigation }) {
 
       <InputWithIcon
         icon="person"
-        placeholder="Email (Username)"
+        placeholder="Email"
         value={username}
         onChangeText={setUsername}
       />
