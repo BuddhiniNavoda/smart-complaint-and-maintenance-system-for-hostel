@@ -16,7 +16,7 @@ export default function InfoScreen({ navigation }) {
         container: {
             flex: 1,
             padding: 20,
-            backgroundColor: isDarkMode ? '#121212' : '#f5f5f5'
+            backgroundColor: isDarkMode ? '#f5f5f5' : '#f5f5f5'
         },
         header: {
             flexDirection: 'row',
@@ -29,7 +29,7 @@ export default function InfoScreen({ navigation }) {
         title: {
             fontSize: 24,
             fontWeight: 'bold',
-            color: isDarkMode ? 'white' : 'black'
+            color: isDarkMode ? 'white' : 'white'
         },
         section: {
             marginBottom: 30
@@ -38,19 +38,19 @@ export default function InfoScreen({ navigation }) {
             fontSize: 18,
             fontWeight: 'bold',
             marginBottom: 15,
-            color: isDarkMode ? 'white' : 'black'
+            color: isDarkMode ? 'black' : 'black'
         },
         text: {
             fontSize: 16,
             marginBottom: 10,
-            color: isDarkMode ? 'white' : 'black'
+            color: isDarkMode ? 'black' : 'black'
         },
         link: {
             color: '#007AFF',
             textDecorationLine: 'underline'
         },
         developerCard: {
-            backgroundColor: isDarkMode ? '#1e1e1e' : 'white',
+            backgroundColor: isDarkMode ? 'gray' : 'white',
             borderRadius: 10,
             padding: 15,
             marginBottom: 15,
@@ -64,7 +64,7 @@ export default function InfoScreen({ navigation }) {
             fontSize: 18,
             fontWeight: 'bold',
             marginBottom: 5,
-            color: isDarkMode ? 'white' : 'black'
+            color: isDarkMode ? 'black' : 'black'
         },
         contactItem: {
             flexDirection: 'row',
@@ -104,14 +104,14 @@ export default function InfoScreen({ navigation }) {
                         style={styles.contactItem}
                         onPress={() => openLink('mailto:buddhinikaluwila1999@gmail.com')}
                     >
-                        <Ionicons name="mail" size={20} color="#007AFF" />
+                        <Ionicons name="mail" size={20} color="#00000" />
                         <Text style={styles.contactText}>buddhinikaluwila1999@gmail.com</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                         style={styles.contactItem}
                         onPress={() => openLink('https://github.com/BuddhiniNavoda')}
                     >
-                        <Ionicons name="logo-github" size={20} color="#007AFF" />
+                        <Ionicons name="logo-github" size={20} color="#00000" />
                         <Text style={styles.contactText}>github.com/BuddhiniNavoda</Text>
                     </TouchableOpacity>
                 </View>
@@ -122,14 +122,14 @@ export default function InfoScreen({ navigation }) {
                         style={styles.contactItem}
                         onPress={() => openLink('mailto:pramudakulathunga@gmail.com')}
                     >
-                        <Ionicons name="mail" size={20} color="#007AFF" />
-                        <Text style={styles.contactText}>pramudakulathunga@gmail.com</Text>
+                        <Ionicons name="mail" size={20} color="#00000" />
+                        <Text style={styles.contactText}>pramudakulathunga@gmail.com </Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                         style={styles.contactItem}
                         onPress={() => openLink('https://github.com/PramudaKulathunga')}
                     >
-                        <Ionicons name="logo-github" size={20} color="#007AFF" />
+                        <Ionicons name="logo-github" size={20} color="#00000" />
                         <Text style={styles.contactText}>github.com/PramudaKulathunga</Text>
                     </TouchableOpacity>
                 </View>

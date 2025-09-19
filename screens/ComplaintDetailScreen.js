@@ -71,7 +71,7 @@ export default function ComplaintDetailScreen({ navigation, route }) {
     container: {
       flex: 1,
       padding: 20,
-      backgroundColor: isDarkMode ? '#121212' : '#f5f5f5'
+      backgroundColor: isDarkMode ? '#f5f5f5' : '#f5f5f5'
     },
     card: {
       backgroundColor: isDarkMode ? '#1e1e1e' : 'white',
@@ -83,7 +83,7 @@ export default function ComplaintDetailScreen({ navigation, route }) {
       fontSize: 20,
       fontWeight: 'bold',
       marginBottom: 10,
-      color: isDarkMode ? 'white' : 'black'
+      color: isDarkMode ? 'black' : 'black'
     },
     detail: {
       fontSize: 16,
@@ -102,7 +102,7 @@ export default function ComplaintDetailScreen({ navigation, route }) {
       color: 'white'
     },
     button: {
-      backgroundColor: '#007AFF',
+      backgroundColor: '#00000',
       padding: 15,
       borderRadius: 10,
       alignItems: 'center',

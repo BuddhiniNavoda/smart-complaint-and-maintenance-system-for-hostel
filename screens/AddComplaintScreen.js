@@ -143,7 +143,7 @@ export default function AddComplaintScreen({ navigation, route }) {
     container: {
       flex: 1,
       padding: 20,
-      backgroundColor: isDarkMode ? '#121212' : 'white'
+      backgroundColor: isDarkMode ? '#121212' : 'black'
     },
     label: {
       marginTop: 15,
@@ -156,7 +156,7 @@ export default function AddComplaintScreen({ navigation, route }) {
       padding: 15,
       borderRadius: 10,
       borderColor: isDarkMode ? '#333' : '#ddd',
-      backgroundColor: isDarkMode ? '#333' : 'white',
+      backgroundColor: isDarkMode ? 'white' : 'white',
       color: isDarkMode ? 'white' : 'black',
       minHeight: 100,
       textAlignVertical: 'top'

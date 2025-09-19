@@ -204,7 +204,7 @@ export default function HomeScreen({ navigation, route }) {
 
   const getStatusColor = (status, isDark) => {
     switch (status) {
-      case 'Submitted': return isDark ? '#333' : '#eee';
+      case 'Submitted': return isDark ? 'purple' : '#eee';
       case 'Approved': return isDark ? '#2a3c96' : '#d4e2ff';
       case 'Fixed': return isDark ? '#1a5c1a' : '#d4ffd4';
       default: return isDark ? '#333' : '#eee';
@@ -214,13 +214,13 @@ export default function HomeScreen({ navigation, route }) {
   const styles = StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: isDarkMode ? '#121212' : '#f5f5f5'
+      backgroundColor: isDarkMode ? '#f5f5f5' : '#f5f5f5'
     },
     tabContainer: {
       flexDirection: 'row',
       borderBottomWidth: 1,
       borderBottomColor: isDarkMode ? '#333' : '#ddd',
-      backgroundColor: isDarkMode ? '#1e1e1e' : 'white'
+      backgroundColor: isDarkMode ? 'gray' : 'white'
     },
     tabButton: {
       flex: 1,
@@ -230,7 +230,7 @@ export default function HomeScreen({ navigation, route }) {
       borderBottomColor: 'transparent'
     },
     activeTab: {
-      borderBottomColor: '#007AFF'
+      borderBottomColor: '#000000'
     },
     tabText: {
       color: isDarkMode ? 'white' : 'black'
@@ -243,7 +243,7 @@ export default function HomeScreen({ navigation, route }) {
       borderRadius: 10,
       padding: 15,
       margin: 10,
-      shadowColor: isDarkMode ? '#333' : '#000',
+      shadowColor: isDarkMode ? 'gray' : '#000',
       shadowOffset: { width: 0, height: 2 },
       shadowOpacity: 0.1,
       shadowRadius: 4,
@@ -291,7 +291,7 @@ export default function HomeScreen({ navigation, route }) {
       position: 'absolute',
       right: 20,
       bottom: 20,
-      backgroundColor: '#007AFF',
+      backgroundColor: '#00000',
       width: 56,
       height: 56,
       borderRadius: 28,
