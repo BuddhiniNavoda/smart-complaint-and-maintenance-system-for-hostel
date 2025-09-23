@@ -1,15 +1,22 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
-import { useColorScheme } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TouchableOpacity,
+  Alert,
+  ActivityIndicator,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useIsFocused } from '@react-navigation/native';
 import { ThemeContext } from '../context/ThemeContext';
-import { ref, onValue, off, get } from 'firebase/database';
+import { ref, onValue, off, get, update } from 'firebase/database';
 import { database } from '../firebase/config';
 
 export default function HomeScreen({ navigation, route }) {
-  const { userType, userData } = route.params;
+  const { userType } = route.params;
   const [activeTab, setActiveTab] = useState('Submitted');
   const [complaints, setComplaints] = useState([]);
   const [votedComplaints, setVotedComplaints] = useState({});
@@ -17,8 +24,30 @@ export default function HomeScreen({ navigation, route }) {
   const [refreshing, setRefreshing] = useState(false);
   const { isDarkMode } = useContext(ThemeContext);
   const isFocused = useIsFocused();
+  const [userData, setUserData] = useState(null);
 
-  // Load complaints from Firebase Realtime Database
+  useEffect(() => {
+    const loadUserData = async () => {
+      try {
+        const storedUserData = await AsyncStorage.getItem('userData');
+        if (storedUserData) {
+          const parsedData = JSON.parse(storedUserData);
+          setUserData(parsedData);
+
+        } else if (route.params?.userData) {
+          setUserData(route.params.userData);
+        }
+      } catch (error) {
+        console.error('Error loading user data:', error);
+        Alert.alert("Error", "Failed to load user data");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadUserData();
+  }, [route.params]);
+
   useEffect(() => {
     const loadComplaints = async () => {
       if (!isFocused) return;
@@ -27,7 +56,6 @@ export default function HomeScreen({ navigation, route }) {
       try {
         const complaintsRef = ref(database, 'complaints');
 
-        // Set up realtime listener
         onValue(complaintsRef, (snapshot) => {
           const complaintsData = snapshot.val();
           const complaintsArray = [];
@@ -41,7 +69,6 @@ export default function HomeScreen({ navigation, route }) {
             });
           }
 
-          // Sort by date (newest first) and then by votes
           complaintsArray.sort((a, b) => {
             const dateA = new Date(a.createdAt || a.date || 0);
             const dateB = new Date(b.createdAt || b.date || 0);
@@ -55,8 +82,6 @@ export default function HomeScreen({ navigation, route }) {
           console.error('Error loading complaints:', error);
           setLoading(false);
           setRefreshing(false);
-
-          // Fallback to local storage if Firebase fails
           loadComplaintsFromLocal();
         });
 
@@ -85,7 +110,6 @@ export default function HomeScreen({ navigation, route }) {
 
     loadComplaints();
 
-    // Clean up listener when component unmounts
     return () => {
       const complaintsRef = ref(database, 'complaints');
       off(complaintsRef);
@@ -118,7 +142,6 @@ export default function HomeScreen({ navigation, route }) {
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
-      // Force reload from Firebase
       const complaintsRef = ref(database, 'complaints');
       const snapshot = await get(complaintsRef);
 
@@ -149,16 +172,50 @@ export default function HomeScreen({ navigation, route }) {
   };
 
   const filteredComplaints = complaints.filter(complaint => {
-    // Students can only see public complaints
-    if (userType === 'student' && complaint.visibility !== 'public') {
+    const isUserComplaint = complaint.userId === userData?.id ||
+      complaint.submittedBy === userData?.username;
+
+    // Warden type filtering
+    if (userType === 'wardenB') {
+      if (complaint.hostelType !== 'male' && !isUserComplaint) {
+        return false;
+      }
+    } else if (userType === 'wardenF') {
+      if (complaint.hostelType !== 'female' && !isUserComplaint) {
+        return false;
+      }
+    }
+    else if (userType === 'staff' && userData?.assignedHostelGender === 'male') {
+      if (complaint.hostelType !== 'male' && !isUserComplaint) {
+        return false;
+      }
+    }
+    else if (userType === 'staff' && userData?.assignedHostelGender === 'female') {
+      if (complaint.hostelType !== 'female' && !isUserComplaint) {
+        return false;
+      }
+    }
+
+    if (isUserComplaint) {
+      if (activeTab === 'Submitted') return complaint.status === 'Submitted';
+      if (activeTab === 'Approved') return complaint.status === 'Approved';
+      if (activeTab === 'Fixed') return complaint.status === 'Fixed';
+      return true;
+    }
+
+    if (userType === 'student' && complaint.visibility == 'public') {
+      if (userData?.hostelGender === 'male' && complaint.hostelType === 'male') {
+        return true;
+      }
+      if (userData?.hostelGender === 'female' && complaint.hostelType === 'female') {
+        return true;
+      }
       return false;
     }
 
-    // Filter by active tab
     if (activeTab === 'Submitted') return complaint.status === 'Submitted';
     if (activeTab === 'Approved') return complaint.status === 'Approved';
     if (activeTab === 'Fixed') return complaint.status === 'Fixed';
-
     return true;
   }).sort((a, b) => b.votes - a.votes);
 
@@ -167,36 +224,55 @@ export default function HomeScreen({ navigation, route }) {
 
     try {
       const currentVote = votedComplaints[complaintId];
-      let updatedComplaints = [...complaints];
-      let updatedVotes = { ...votedComplaints };
+      let voteChange = 0;
+      let newVoteType = voteType;
 
-      updatedComplaints = complaints.map(c => {
+      // Calculate vote change
+      if (!currentVote) {
+        voteChange = voteType === 'up' ? 1 : -1;
+      } else if (currentVote === voteType) {
+        voteChange = voteType === 'up' ? -1 : 1;
+        newVoteType = null; // Remove vote
+      } else {
+        voteChange = voteType === 'up' ? 2 : -2;
+      }
+
+      // Optimistic update - update local state immediately
+      const updatedComplaints = complaints.map(c => {
         if (c.id === complaintId) {
-          let voteChange = 0;
-
-          if (!currentVote) {
-            voteChange = voteType === 'up' ? 1 : -1;
-            updatedVotes[complaintId] = voteType;
-          } else if (currentVote === voteType) {
-            voteChange = voteType === 'up' ? -1 : 1;
-            delete updatedVotes[complaintId];
-          } else {
-            voteChange = voteType === 'up' ? 2 : -2;
-            updatedVotes[complaintId] = voteType;
-          }
-
           return { ...c, votes: (c.votes || 0) + voteChange };
         }
         return c;
       });
 
-      await AsyncStorage.setItem('votedComplaints', JSON.stringify(updatedVotes));
+      const updatedVotes = { ...votedComplaints };
+      if (newVoteType) {
+        updatedVotes[complaintId] = newVoteType;
+      } else {
+        delete updatedVotes[complaintId];
+      }
+
       setComplaints(updatedComplaints);
       setVotedComplaints(updatedVotes);
 
+      // Update Firebase
+      const complaintRef = ref(database, `complaints/${complaintId}`);
+      await update(complaintRef, {
+        votes: updatedComplaints.find(c => c.id === complaintId).votes
+      });
+
+      // Save to local storage
+      await AsyncStorage.setItem('votedComplaints', JSON.stringify(updatedVotes));
+
     } catch (error) {
-      console.error('Error saving vote:', error);
-      Alert.alert("Error", "Failed to save your vote");
+      console.error('Error saving vote to Firebase:', error);
+
+      // Revert on error
+      const originalComplaints = [...complaints];
+      setComplaints(originalComplaints);
+      setVotedComplaints(votedComplaints);
+
+      Alert.alert("Error", "Failed to update vote. Please try again.");
     }
   };
 
@@ -206,22 +282,26 @@ export default function HomeScreen({ navigation, route }) {
       <>
         <TouchableOpacity
           onPress={() => handleVote(item.id, 'up')}
+          style={styles.voteButton}
         >
           <Ionicons
             name={userVote === 'up' ? 'thumbs-up' : 'thumbs-up-outline'}
             size={20}
-            color={userVote === 'up' ? '#4CAF50' : (isDarkMode ? '#aaa' : '#888')} />
+            color={userVote === 'up' ? '#4CAF50' : '#88B2FF'}
+          />
         </TouchableOpacity>
-        <Text style={[styles.voteCount, { color: isDarkMode ? 'white' : 'black' }]}>
+        <Text style={styles.voteCount}>
           {item.votes || 0}
         </Text>
         <TouchableOpacity
           onPress={() => handleVote(item.id, 'down')}
+          style={styles.voteButton}
         >
           <Ionicons
             name={userVote === 'down' ? 'thumbs-down' : 'thumbs-down-outline'}
             size={20}
-            color={userVote === 'down' ? '#F44336' : (isDarkMode ? '#aaa' : '#888')} />
+            color={userVote === 'down' ? '#FF3B30' : '#88B2FF'}
+          />
         </TouchableOpacity>
       </>
     );
@@ -235,102 +315,88 @@ export default function HomeScreen({ navigation, route }) {
       return date.toLocaleDateString('en-US', {
         year: 'numeric',
         month: 'short',
-        day: 'numeric'
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
       });
     } catch (error) {
       return dateString;
     }
   };
 
+  const getStatusColor = (status) => {
+    switch (status) {
+      case 'Submitted': return '#FFA500';
+      case 'Approved': return '#007AFF';
+      case 'Fixed': return '#4CAF50';
+      default: return '#666';
+    }
+  };
+
   const renderComplaintItem = ({ item }) => (
-    <View
-      style={[
-        styles.complaintCard,
-        { backgroundColor: isDarkMode ? '#1e1e1e' : 'white' }
-      ]}
+    <TouchableOpacity
+      style={styles.complaintCard}
+      onPress={() => navigation.navigate('ComplaintDetail', {
+        complaint: item,
+        userType,
+        userData
+      })}
     >
       <View style={styles.complaintHeader}>
-        <TouchableOpacity onPress={() => navigation.navigate('ComplaintDetail', {
-          complaint: item,
-          userType,
-          userData
-        })}>
-          <Text style={[styles.complaintCategory, { color: '#007AFF' }]}>
+        <View style={styles.categoryContainer}>
+          <Ionicons name="pricetag" size={16} color="#007AFF" />
+          <Text style={styles.complaintCategory}>
             {item.category || 'Other'}
           </Text>
-        </TouchableOpacity>
-        <Text style={[styles.complaintDate, { color: isDarkMode ? '#aaa' : '#666' }]}>
+        </View>
+        <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}>
+          <Text style={styles.statusText}>{item.status || 'Submitted'}</Text>
+        </View>
+      </View>
+
+      <Text style={styles.complaintDescription}>
+        {item.description}
+      </Text>
+
+      <View style={styles.complaintFooter}>
+        <View style={styles.userInfo}>
+          <Ionicons name="person" size={14} color="#666" />
+          <Text style={styles.submittedBy}>
+            {item.userName || item.submittedBy || 'Anonymous'}
+            {item.userHostel && ` • ${item.userHostel}`}
+            {item.userRoom && ` • Room ${item.userRoom}`}
+          </Text>
+        </View>
+        <Text style={styles.complaintDate}>
           {formatDate(item.date || item.createdAt)}
         </Text>
       </View>
 
-      <TouchableOpacity onPress={() => navigation.navigate('ComplaintDetail', {
-        complaint: item,
-        userType,
-        userData
-      })}>
-        <Text style={[styles.complaintDescription, { color: isDarkMode ? 'white' : 'black' }]}>
-          {item.description}
-        </Text>
-
-        {/* Show submitted by information */}
-        <Text style={[styles.submittedBy, { color: isDarkMode ? '#aaa' : '#666' }]}>
-          Submitted by: {item.userName || item.submittedBy || 'Anonymous'}
-          {item.userHostel && ` • ${item.userHostel}`}
-          {item.userRoom && ` • Room ${item.userRoom}`}
-        </Text>
-      </TouchableOpacity>
-
-      <View style={styles.complaintFooter}>
-        <TouchableOpacity style={[
-          styles.statusBadge,
-          {
-            backgroundColor: getStatusColor(item.status, isDarkMode),
-            borderColor: isDarkMode ? '#333' : '#ddd'
-          }
-        ]}
-          onPress={() => navigation.navigate('ComplaintDetail', {
-            complaint: item,
-            userType,
-            userData
-          })}
-        >
-          <Text style={styles.statusText}>{item.status || 'Submitted'}</Text>
-        </TouchableOpacity>
-
-        <View style={styles.voteContainer}>
-          {item.status === 'Submitted' && userType === 'student'
-            ? renderVoteButtons(item)
-            : <Text style={[styles.voteCount, { color: isDarkMode ? 'white' : 'black' }]}>
-              Votes: {item.votes || 0}
-            </Text>
-          }
-        </View>
+      <View style={styles.voteContainer}>
+        {item.status === 'Submitted' && userType === 'student' ? (
+          renderVoteButtons(item)
+        ) : (
+          <View style={styles.voteDisplay}>
+            <Ionicons name="heart" size={16} color="#FF3B30" />
+            <Text style={styles.voteCount}>{item.votes || 0} votes</Text>
+          </View>
+        )}
       </View>
-    </View>
+    </TouchableOpacity>
   );
-
-  const getStatusColor = (status, isDark) => {
-    switch (status) {
-      case 'Submitted': return isDark ? '#333' : '#eee';
-      case 'Approved': return isDark ? '#2a3c96' : '#d4e2ff';
-      case 'Fixed': return isDark ? '#1a5c1a' : '#d4ffd4';
-      default: return isDark ? '#333' : '#eee';
-    }
-  };
 
   const renderEmptyState = () => (
     <View style={styles.emptyState}>
       <Ionicons
         name="document-text-outline"
-        size={64}
-        color={isDarkMode ? '#555' : '#ccc'}
+        size={80}
+        color="#E3F2FD"
       />
-      <Text style={[styles.emptyStateText, { color: isDarkMode ? '#aaa' : '#666' }]}>
+      <Text style={styles.emptyStateText}>
         {loading ? 'Loading complaints...' : 'No complaints found'}
       </Text>
       {!loading && (
-        <Text style={[styles.emptyStateSubtext, { color: isDarkMode ? '#888' : '#999' }]}>
+        <Text style={styles.emptyStateSubtext}>
           {activeTab === 'Submitted' ? 'No submitted complaints' :
             activeTab === 'Approved' ? 'No approved complaints' :
               'No fixed complaints'}
@@ -342,189 +408,254 @@ export default function HomeScreen({ navigation, route }) {
   const styles = StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: isDarkMode ? '#121212' : '#f5f5f5'
+      backgroundColor: '#86befa8d',
+    },
+    backgroundContainer: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+    },
+    gradientOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0, 122, 255, 0.1)',
+    },
+    contentContainer: {
+      flex: 1,
+    },
+    header: {
+      padding: 20,
+      paddingBottom: 10,
+    },
+    headerTitle: {
+      fontSize: 28,
+      fontWeight: 'bold',
+      color: 'white',
+      textAlign: 'center',
+      marginBottom: 10,
+    },
+    headerSubtitle: {
+      fontSize: 16,
+      color: '#E3F2FD',
+      textAlign: 'center',
+      marginBottom: 20,
     },
     tabContainer: {
+      marginTop: 20,
       flexDirection: 'row',
-      borderBottomWidth: 1,
-      borderBottomColor: isDarkMode ? '#333' : '#ddd',
-      backgroundColor: isDarkMode ? '#1e1e1e' : 'white'
+      backgroundColor: 'white',
+      marginHorizontal: 20,
+      borderRadius: 15,
+      padding: 5,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.1,
+      shadowRadius: 8,
+      elevation: 5,
     },
     tabButton: {
       flex: 1,
-      paddingVertical: 15,
+      paddingVertical: 12,
       alignItems: 'center',
-      borderBottomWidth: 2,
-      borderBottomColor: 'transparent'
+      borderRadius: 10,
     },
     activeTab: {
-      borderBottomColor: '#007AFF'
+      backgroundColor: '#007AFF',
     },
     tabText: {
-      color: isDarkMode ? 'white' : 'black'
+      fontSize: 14,
+      fontWeight: '600',
+      color: '#666',
     },
     activeTabText: {
-      color: '#007AFF',
-      fontWeight: 'bold'
+      color: 'white',
     },
     complaintCard: {
-      borderRadius: 10,
-      padding: 15,
-      margin: 10,
-      shadowColor: isDarkMode ? '#333' : '#000',
-      shadowOffset: { width: 0, height: 2 },
+      backgroundColor: 'white',
+      borderRadius: 20,
+      padding: 20,
+      marginHorizontal: 20,
+      marginVertical: 8,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
       shadowOpacity: 0.1,
-      shadowRadius: 4,
-      elevation: 3
+      shadowRadius: 8,
+      elevation: 5,
     },
     complaintHeader: {
       flexDirection: 'row',
       justifyContent: 'space-between',
-      marginBottom: 5
+      alignItems: 'center',
+      marginBottom: 12,
+    },
+    categoryContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
     },
     complaintCategory: {
       fontWeight: 'bold',
-      fontSize: 14
+      fontSize: 16,
+      color: '#007AFF',
+      marginLeft: 5,
     },
-    complaintDate: {
-      fontSize: 12
+    statusBadge: {
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 15,
+    },
+    statusText: {
+      fontSize: 12,
+      fontWeight: 'bold',
+      color: 'white',
     },
     complaintDescription: {
       fontSize: 16,
-      marginBottom: 8
-    },
-    submittedBy: {
-      fontSize: 12,
-      marginBottom: 10,
-      fontStyle: 'italic'
+      color: '#333',
+      lineHeight: 22,
+      marginBottom: 12,
     },
     complaintFooter: {
       flexDirection: 'row',
       justifyContent: 'space-between',
-      alignItems: 'center'
+      alignItems: 'center',
+      marginBottom: 10,
     },
-    statusBadge: {
-      paddingHorizontal: 8,
-      paddingVertical: 4,
-      borderRadius: 10,
-      borderWidth: 1
+    userInfo: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flex: 1,
     },
-    statusText: {
+    submittedBy: {
       fontSize: 12,
-      color: isDarkMode ? 'white' : 'black'
+      color: '#666',
+      marginLeft: 5,
+      fontStyle: 'italic',
+      maxWidth: 100,
+    },
+    complaintDate: {
+      fontSize: 12,
+      color: '#999',
     },
     voteContainer: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 8
+      justifyContent: 'flex-end',
+    },
+    voteButton: {
+      padding: 5,
     },
     voteCount: {
-      marginHorizontal: 5,
-      fontSize: 14
+      marginHorizontal: 8,
+      fontSize: 14,
+      fontWeight: '600',
+      color: '#333',
+    },
+    voteDisplay: {
+      flexDirection: 'row',
+      alignItems: 'center',
     },
     fab: {
       position: 'absolute',
-      right: 20,
-      bottom: 20,
-      backgroundColor: '#007AFF',
-      width: 56,
-      height: 56,
-      borderRadius: 28,
+      right: 25,
+      bottom: 25,
+      backgroundColor: '#ffffffff',
+      width: 60,
+      height: 60,
+      borderRadius: 30,
       alignItems: 'center',
       justifyContent: 'center',
-      elevation: 5
+      shadowColor: '#879cb3ff',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.3,
+      shadowRadius: 8,
+      elevation: 8,
+      borderWidth: 3,
+      borderColor: '#5986b6ff',
     },
     emptyState: {
       flex: 1,
       justifyContent: 'center',
       alignItems: 'center',
-      padding: 40
+      padding: 40,
+      marginTop: 50,
     },
     emptyStateText: {
       fontSize: 18,
       textAlign: 'center',
       marginTop: 16,
-      marginBottom: 8
+      marginBottom: 8,
+      color: '#666',
+      fontWeight: '600',
     },
     emptyStateSubtext: {
       fontSize: 14,
-      textAlign: 'center'
+      textAlign: 'center',
+      color: '#999',
     },
     loadingContainer: {
       flex: 1,
       justifyContent: 'center',
-      alignItems: 'center'
-    }
+      alignItems: 'center',
+      backgroundColor: '#86befa8d',
+    },
+    loadingText: {
+      color: '#007AFF',
+      fontSize: 18,
+      marginTop: 20,
+      fontWeight: '600',
+    },
   });
 
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#007AFF" />
-        <Text style={[styles.emptyStateText, { color: isDarkMode ? 'white' : 'black' }]}>
-          Loading complaints...
-        </Text>
+        <ActivityIndicator size="large" color="white" />
+        <Text style={styles.loadingText}>Loading Complaints...</Text>
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      {/* Tab Bar */}
-      <View style={styles.tabContainer}>
-        <TouchableOpacity
-          style={[styles.tabButton, activeTab === 'Submitted' && styles.activeTab]}
-          onPress={() => setActiveTab('Submitted')}
-        >
-          <Text style={[
-            styles.tabText,
-            activeTab === 'Submitted' && styles.activeTabText
-          ]}>
-            Submitted
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.tabButton, activeTab === 'Approved' && styles.activeTab]}
-          onPress={() => setActiveTab('Approved')}
-        >
-          <Text style={[
-            styles.tabText,
-            activeTab === 'Approved' && styles.activeTabText
-          ]}>
-            Approved
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.tabButton, activeTab === 'Fixed' && styles.activeTab]}
-          onPress={() => setActiveTab('Fixed')}
-        >
-          <Text style={[
-            styles.tabText,
-            activeTab === 'Fixed' && styles.activeTabText
-          ]}>
-            Fixed
-          </Text>
-        </TouchableOpacity>
+      <View style={styles.backgroundContainer}>
+        <View style={styles.gradientOverlay} />
       </View>
 
-      {/* Complaints List */}
+      <View style={styles.tabContainer}>
+        {['Submitted', 'Approved', 'Fixed'].map((tab) => (
+          <TouchableOpacity
+            key={tab}
+            style={[styles.tabButton, activeTab === tab && styles.activeTab]}
+            onPress={() => setActiveTab(tab)}
+          >
+            <Text style={[
+              styles.tabText,
+              activeTab === tab && styles.activeTabText
+            ]}>
+              {tab}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
       <FlatList
         data={filteredComplaints}
         keyExtractor={(item) => item.id}
         renderItem={renderComplaintItem}
-        contentContainerStyle={{ paddingBottom: 80 }}
+        contentContainerStyle={{ paddingVertical: 15, paddingBottom: 100 }}
         ListEmptyComponent={renderEmptyState}
         refreshing={refreshing}
         onRefresh={handleRefresh}
+        showsVerticalScrollIndicator={false}
       />
 
-      {/* Add Complaint Button (for students) */}
       {userType === 'student' && (
         <TouchableOpacity
           style={styles.fab}
           onPress={() => navigation.navigate('AddComplaint', { userData })}
         >
-          <Ionicons name="add" size={24} color="white" />
+          <Ionicons name="add" size={28} color="#007AFF" />
         </TouchableOpacity>
       )}
     </View>

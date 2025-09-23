@@ -1,14 +1,22 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { View, Text, TextInput, Button, StyleSheet, TouchableOpacity, Alert, ScrollView, Image, ActivityIndicator } from 'react-native';
+import {
+  View,
+  Text,
+  TextInput,
+  StyleSheet,
+  TouchableOpacity,
+  Alert,
+  ScrollView,
+  Image,
+  ActivityIndicator
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ThemeContext } from '../context/ThemeContext';
 import * as ImagePicker from 'expo-image-picker';
-import * as NavigationBar from 'expo-navigation-bar';
-import { ref, push, set, serverTimestamp } from 'firebase/database'; // Changed from Firestore to Realtime Database
-import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { database, storage } from '../firebase/config'; // Make sure this exports Realtime Database, not Firestore
-import { getAuth } from 'firebase/auth';
+import { ref, push, set, serverTimestamp } from 'firebase/database';
+import { database } from '../firebase/config';
+import CloudinaryService from '../services/cloudinaryService';
 
 export default function AddComplaintScreen({ navigation, route }) {
   const [description, setDescription] = useState('');
@@ -16,43 +24,27 @@ export default function AddComplaintScreen({ navigation, route }) {
   const [category, setCategory] = useState('Electrical');
   const [image, setImage] = useState(null);
   const [uploading, setUploading] = useState(false);
-  const [connectionError, setConnectionError] = useState(false);
+  const [imageUploading, setImageUploading] = useState(false);
   const [userData, setUserData] = useState(null);
-  const [loadingUserData, setLoadingUserData] = useState(true);
   const { isDarkMode } = useContext(ThemeContext);
 
-  const auth = getAuth();
-
   const categories = [
-    'Electrical',
-    'Plumbing',
-    'Carpentry',
-    'Cleaning',
-    'Infrastructure',
-    'Furniture',
-    'Other'
+    'Electrical', 'Plumbing', 'Carpentry', 'Cleaning',
+    'Infrastructure', 'Furniture', 'Other'
   ];
 
-  // Load userData from AsyncStorage
   useEffect(() => {
     const loadUserData = async () => {
       try {
         const storedUserData = await AsyncStorage.getItem('userData');
         if (storedUserData) {
-          const parsedData = JSON.parse(storedUserData);
-          setUserData(parsedData);
-        } else {
-          Alert.alert('Error', 'User data not found. Please login again.');
-          navigation.navigate('Login');
+          setUserData(JSON.parse(storedUserData));
+          console.log(storedUserData);
         }
       } catch (error) {
         console.error('Error loading user data:', error);
-        Alert.alert('Error', 'Failed to load user data');
-      } finally {
-        setLoadingUserData(false);
       }
     };
-
     loadUserData();
   }, []);
 
@@ -65,27 +57,12 @@ export default function AddComplaintScreen({ navigation, route }) {
     })();
   }, []);
 
-  const showAlertWithNavBarReset = (title, message, callback) => {
-    Alert.alert(title, message, [
-      {
-        text: 'OK',
-        onPress: () => {
-          setTimeout(async () => {
-            await NavigationBar.setVisibilityAsync('hidden');
-            await NavigationBar.setBehaviorAsync('immersive');
-            if (callback) callback();
-          }, 300);
-        }
-      },
-    ]);
-  };
-
   const pickImage = async () => {
     let result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [4, 3],
-      quality: 0.8, // Reduced quality for faster uploads
+      quality: 0.7,
     });
 
     if (!result.canceled) {
@@ -97,7 +74,7 @@ export default function AddComplaintScreen({ navigation, route }) {
     let result = await ImagePicker.launchCameraAsync({
       allowsEditing: true,
       aspect: [4, 3],
-      quality: 0.8,
+      quality: 0.7,
     });
 
     if (!result.canceled) {
@@ -105,61 +82,49 @@ export default function AddComplaintScreen({ navigation, route }) {
     }
   };
 
-  const uploadImage = async () => {
+  const removeImage = () => {
+    setImage(null);
+  };
+
+  const uploadToCloudinary = async () => {
     if (!image) return null;
 
+    setImageUploading(true);
     try {
-      // Convert image URI to blob
-      const response = await fetch(image);
-      const blob = await response.blob();
-
-      // Create a unique filename
-      const filename = image.substring(image.lastIndexOf('/') + 1);
-      const imageRef = storageRef(storage, `complaint-images/${Date.now()}_${filename}`);
-
-      // Upload the image
-      const snapshot = await uploadBytes(imageRef, blob);
-
-      // Get the download URL
-      const downloadURL = await getDownloadURL(snapshot.ref);
-      return downloadURL;
+      const imageUrl = await CloudinaryService.uploadImage(image);
+      return imageUrl;
     } catch (error) {
-      console.error('Upload error:', error);
-      Alert.alert('Upload failed', 'Could not upload image');
+      console.error('Cloudinary upload error:', error);
+      Alert.alert('Upload Failed', 'Could not upload image. Please try again or submit without image.');
       return null;
+    } finally {
+      setImageUploading(false);
     }
   };
 
   const handleSubmit = async () => {
-    if (!userData) {
-      Alert.alert('Error', 'User data not available. Please login again.');
-      navigation.navigate('Login');
+    if (!description.trim()) {
+      Alert.alert('Error', 'Please enter a description');
       return;
     }
 
-    if (!description.trim()) {
-      showAlertWithNavBarReset('Error', 'Please enter a description');
+    if (!database) {
+      Alert.alert('Error', 'Database connection not available. Please try again later.');
       return;
     }
 
     setUploading(true);
-    setConnectionError(false);
 
     try {
-      const imageUrl = image ? await uploadImage() : null;
+      let imageUrl = null;
 
-      // Get user ID
-      const getUserID = () => {
-        const currentUser = auth.currentUser;
-        if (currentUser && currentUser.uid) {
-          return currentUser.uid;
+      if (image) {
+        imageUrl = await uploadToCloudinary();
+        if (!imageUrl) {
+          Alert.alert('Warning', 'Image upload failed. Submitting without image.');
         }
-        return userData.id || userData.uid || userData.userId || 'unknown-user';
-      };
+      }
 
-      const userId = getUserID();
-
-      // Create complaint data for Firebase Realtime Database
       const complaintData = {
         description: description.trim(),
         visibility,
@@ -167,27 +132,28 @@ export default function AddComplaintScreen({ navigation, route }) {
         status: 'Submitted',
         votes: 0,
         date: new Date().toISOString().split('T')[0],
-        submittedBy: userData.username || 'Anonymous',
-        userId: userId,
-        userEmail: userData.email || userData.username || '',
-        userName: userData.name || 'Anonymous',
-        userHostel: userData.hostel || '',
-        userRoom: userData.room || '',
-        userType: userData.userType || 'student',
+        submittedBy: userData?.username || 'Anonymous',
+        userId: userData?.id || 'unknown-user',
+        userEmail: userData?.email || userData?.username || '',
+        userName: userData?.name || 'Anonymous',
+        userHostel: userData?.hostel || '',
+        userRoom: userData?.room || '',
+        userType: userData?.userType || 'student',
+        hostelType: userData?.hostelGender || 'undefine',
         imageUrl: imageUrl || '',
-        createdAt: serverTimestamp(), // This works for both Firestore and Realtime Database
+        createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
 
-      // Add to Firebase Realtime Database
+      console.log('Submitting complaint to Realtime Database...');
+
       const complaintsRef = ref(database, 'complaints');
       const newComplaintRef = push(complaintsRef);
 
       await set(newComplaintRef, complaintData);
 
-      console.log('Complaint written with ID: ', newComplaintRef.key);
+      console.log('Complaint submitted with ID:', newComplaintRef.key);
 
-      // Also store locally for offline access
       try {
         const existingComplaints = await AsyncStorage.getItem('complaints');
         const complaints = existingComplaints ? JSON.parse(existingComplaints) : [];
@@ -205,20 +171,23 @@ export default function AddComplaintScreen({ navigation, route }) {
         console.warn('Failed to save complaint locally:', localError);
       }
 
-      showAlertWithNavBarReset('Success', 'Complaint submitted successfully', () => {
-        setDescription('');
-        setVisibility('public');
-        setImage(null);
-        setCategory('Electrical');
-        navigation.goBack();
-      });
+      Alert.alert('Success', 'Complaint submitted successfully!', [
+        {
+          text: 'OK',
+          onPress: () => {
+            setDescription('');
+            setVisibility('public');
+            setImage(null);
+            setCategory('Electrical');
+            navigation.goBack();
+          }
+        }
+      ]);
 
     } catch (error) {
       console.error('Submission error:', error);
-      setConnectionError(true);
 
-      if (error.message === 'Connection timeout' || error.code === 'unavailable') {
-        // Save to local storage for offline access
+      if (error.message.includes('_checkNotDeleted') || error.message.includes('Firebase')) {
         try {
           const existingComplaints = await AsyncStorage.getItem('complaints');
           const complaints = existingComplaints ? JSON.parse(existingComplaints) : [];
@@ -231,13 +200,13 @@ export default function AddComplaintScreen({ navigation, route }) {
             status: 'Submitted (Offline)',
             votes: 0,
             date: new Date().toISOString().split('T')[0],
-            submittedBy: userData.username || 'Anonymous',
-            userId: userData.id || userData.uid || userData.userId || 'unknown-user',
-            userEmail: userData.email || userData.username || '',
-            userName: userData.name || 'Anonymous',
-            userHostel: userData.hostel || '',
-            userRoom: userData.room || '',
-            userType: userData.userType || 'student',
+            submittedBy: userData?.username || 'Anonymous',
+            userId: userData?.id || 'unknown-user',
+            userEmail: userData?.email || userData?.username || '',
+            userName: userData?.name || 'Anonymous',
+            userHostel: userData?.hostel || '',
+            userRoom: userData?.room || '',
+            userType: userData?.userType || 'student',
             imageUrl: image || '',
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
@@ -247,332 +216,440 @@ export default function AddComplaintScreen({ navigation, route }) {
           complaints.push(offlineComplaint);
           await AsyncStorage.setItem('complaints', JSON.stringify(complaints));
 
-          showAlertWithNavBarReset(
+          Alert.alert(
             'Saved Offline',
-            'Complaint saved locally. It will sync when you have internet connection.',
-            () => {
-              setDescription('');
-              setVisibility('public');
-              setImage(null);
-              setCategory('Electrical');
-              navigation.goBack();
-            }
+            'Complaint saved locally. It will sync when you have connection.',
+            [
+              {
+                text: 'OK',
+                onPress: () => {
+                  setDescription('');
+                  setVisibility('public');
+                  setImage(null);
+                  setCategory('Electrical');
+                  navigation.goBack();
+                }
+              }
+            ]
           );
         } catch (localError) {
-          console.warn('Failed to save complaint locally:', localError);
-          showAlertWithNavBarReset('Error', 'Failed to save complaint even locally');
+          console.error('Local save error:', localError);
+          Alert.alert('Error', 'Failed to save complaint. Please try again.');
         }
       } else {
-        showAlertWithNavBarReset('Error', `Failed to submit complaint: ${error.message}`);
+        Alert.alert('Error', 'Failed to submit complaint. Please try again.');
       }
     } finally {
       setUploading(false);
     }
   };
 
-  // ... (styles remain the same as your previous code)
-
   const styles = StyleSheet.create({
     container: {
       flex: 1,
-      padding: 20,
-      backgroundColor: isDarkMode ? '#121212' : 'white'
+      backgroundColor: '#86befa8d',
     },
-    loadingContainer: {
+    backgroundContainer: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+    },
+    gradientOverlay: {
       flex: 1,
-      justifyContent: 'center',
-      alignItems: 'center',
-      backgroundColor: isDarkMode ? '#121212' : 'white'
+      backgroundColor: 'rgba(0, 122, 255, 0.1)',
     },
-    loadingText: {
-      color: isDarkMode ? 'white' : 'black',
-      marginTop: 10
+    contentContainer: {
+      flex: 1,
+      padding: 20,
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: 30,
+      marginTop: 10,
+    },
+    backButton: {
+      marginRight: 15,
+      backgroundColor: 'white',
+      borderRadius: 20,
+      padding: 8,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+      elevation: 3,
+    },
+    title: {
+      fontSize: 28,
+      fontWeight: 'bold',
+      color: 'white',
+      textAlign: 'center',
+      flex: 1,
+      marginRight: 40,
+    },
+    card: {
+      backgroundColor: 'white',
+      borderRadius: 20,
+      padding: 25,
+      marginBottom: 25,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 10 },
+      shadowOpacity: 0.25,
+      shadowRadius: 20,
+      elevation: 10,
+    },
+    sectionTitle: {
+      fontSize: 20,
+      fontWeight: 'bold',
+      color: '#007AFF',
+      marginBottom: 15,
     },
     label: {
-      marginTop: 15,
-      marginBottom: 5,
       fontSize: 16,
       fontWeight: '600',
-      color: isDarkMode ? 'white' : 'black'
+      color: '#333',
+      marginBottom: 10,
+    },
+    categoryContainer: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      marginBottom: 20,
+    },
+    categoryButton: {
+      backgroundColor: '#F8FBFF',
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      borderRadius: 20,
+      margin: 5,
+      borderWidth: 2,
+      borderColor: '#E3F2FD',
+    },
+    categoryButtonSelected: {
+      backgroundColor: '#007AFF',
+      borderColor: '#007AFF',
+    },
+    categoryText: {
+      fontSize: 14,
+      fontWeight: '500',
+      color: '#007AFF',
+    },
+    categoryTextSelected: {
+      color: 'white',
     },
     input: {
-      borderWidth: 1,
+      borderWidth: 2,
+      borderColor: '#E3F2FD',
+      backgroundColor: '#F8FBFF',
+      borderRadius: 15,
       padding: 15,
-      borderRadius: 10,
-      borderColor: isDarkMode ? '#333' : '#ddd',
-      backgroundColor: isDarkMode ? '#333' : 'white',
-      color: isDarkMode ? 'white' : 'black',
-      minHeight: 100,
-      textAlignVertical: 'top'
+      fontSize: 16,
+      color: '#007AFF',
+      minHeight: 120,
+      textAlignVertical: 'top',
+      marginBottom: 20,
     },
     radioContainer: {
       flexDirection: 'row',
       alignItems: 'center',
-      marginVertical: 5
+      marginBottom: 15,
+      padding: 12,
+      backgroundColor: '#F8FBFF',
+      borderRadius: 12,
+      borderWidth: 2,
+      borderColor: '#E3F2FD',
     },
     radioButton: {
-      height: 20,
-      width: 20,
-      borderRadius: 10,
-      borderWidth: 1,
+      height: 22,
+      width: 22,
+      borderRadius: 11,
+      borderWidth: 2,
       borderColor: '#007AFF',
       alignItems: 'center',
       justifyContent: 'center',
-      marginRight: 10
+      marginRight: 12,
     },
     radioButtonSelected: {
-      backgroundColor: '#007AFF'
+      backgroundColor: '#007AFF',
     },
     radioInner: {
       height: 10,
       width: 10,
       borderRadius: 5,
-      backgroundColor: 'white'
+      backgroundColor: 'white',
     },
     radioText: {
-      color: isDarkMode ? 'white' : 'black',
-      fontSize: 14
-    },
-    categoryContainer: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      marginVertical: 10
-    },
-    categoryButton: {
-      padding: 10,
-      margin: 5,
-      borderRadius: 20,
-      borderWidth: 1,
-      borderColor: '#007AFF'
-    },
-    categoryButtonSelected: {
-      backgroundColor: '#007AFF'
-    },
-    categoryText: {
-      color: isDarkMode ? 'white' : 'black',
-      fontSize: 12
-    },
-    categoryTextSelected: {
-      color: 'white'
+      fontSize: 14,
+      color: '#333',
+      fontWeight: '500',
+      flex: 1,
     },
     imageContainer: {
       alignItems: 'center',
-      marginVertical: 15
+      marginBottom: 20,
     },
     image: {
-      width: 200,
+      width: '100%',
       height: 200,
-      borderRadius: 10,
-      marginBottom: 10
+      borderRadius: 15,
+      marginBottom: 15,
+      borderWidth: 3,
+      borderColor: '#E3F2FD',
+    },
+    imageButtonsContainer: {
+      flexDirection: 'row',
+      justifyContent: 'center',
     },
     imageButton: {
-      backgroundColor: isDarkMode ? '#333' : '#eee',
-      padding: 10,
-      borderRadius: 10,
       flexDirection: 'row',
       alignItems: 'center',
-      marginRight: 10,
-      marginBottom: 10
+      backgroundColor: '#007AFF',
+      paddingHorizontal: 15,
+      paddingVertical: 10,
+      borderRadius: 25,
+      margin: 5,
+      shadowColor: '#007AFF',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.3,
+      shadowRadius: 8,
+      elevation: 5,
+    },
+    removeButton: {
+      backgroundColor: '#FF3B30',
     },
     buttonText: {
-      color: isDarkMode ? 'white' : 'black',
-      marginLeft: 5,
-      fontSize: 12
-    },
-    buttonGroup: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      justifyContent: 'center',
-      marginVertical: 15
+      color: 'white',
+      fontSize: 14,
+      fontWeight: '600',
+      marginLeft: 8,
     },
     submitButton: {
+      backgroundColor: '#007AFF',
+      padding: 10,
+      borderRadius: 15,
+      alignItems: 'center',
+      marginTop: 10,
+      shadowColor: '#007AFF',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.3,
+      shadowRadius: 8,
+      elevation: 5,
+      flexDirection: 'row',
+      justifyContent: 'center',
+      marginBottom: 50
+    },
+    submitButtonDisabled: {
+      backgroundColor: '#88B2FF',
+    },
+    submitButtonText: {
+      color: 'white',
+      fontSize: 18,
+      fontWeight: 'bold',
+      marginLeft: 8,
+    },
+    loadingContainer: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      backgroundColor: '#007AFF',
+    },
+    loadingText: {
+      color: 'white',
+      fontSize: 18,
       marginTop: 20,
-      marginBottom: 50,
+      fontWeight: '600',
+    },
+    uploadStatus: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 10,
+      backgroundColor: '#E3F2FD',
       borderRadius: 10,
-      overflow: 'hidden'
+      marginVertical: 10,
+    },
+    uploadStatusText: {
+      color: '#007AFF',
+      fontSize: 14,
+      fontWeight: '500',
+      marginLeft: 10,
     },
     selectedImageText: {
-      color: isDarkMode ? 'white' : 'black',
-      fontStyle: 'italic',
+      color: '#007AFF',
+      fontSize: 14,
+      fontWeight: '600',
       textAlign: 'center',
-      marginBottom: 10
-    },
-    connectionError: {
-      backgroundColor: isDarkMode ? '#330000' : '#ffdddd',
-      padding: 10,
-      borderRadius: 5,
       marginBottom: 10,
-      borderLeftWidth: 4,
-      borderLeftColor: '#ff0000'
     },
-    connectionErrorText: {
-      color: '#ff0000',
-      textAlign: 'center',
-      fontSize: 12
-    },
-    uploadLoadingContainer: {
-      alignItems: 'center',
-      marginVertical: 10
+    characterCount: {
+      textAlign: 'right',
+      color: '#88B2FF',
+      fontSize: 12,
+      marginTop: -15,
+      marginBottom: 10,
     },
   });
-
-  if (loadingUserData) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#007AFF" />
-        <Text style={styles.loadingText}>Loading user data...</Text>
-      </View>
-    );
-  }
 
   if (!userData) {
     return (
       <View style={styles.loadingContainer}>
-        <Ionicons name="alert-circle" size={50} color="#ff6b6b" />
-        <Text style={styles.loadingText}>User data not found</Text>
-        <TouchableOpacity
-          style={[styles.imageButton, { marginTop: 20 }]}
-          onPress={() => navigation.navigate('Login')}
-        >
-          <Text style={styles.buttonText}>Go to Login</Text>
-        </TouchableOpacity>
+        <ActivityIndicator size="large" color="white" />
+        <Text style={styles.loadingText}>Loading...</Text>
       </View>
     );
   }
 
   return (
-    <ScrollView style={styles.container}>
-      {connectionError && (
-        <View style={styles.connectionError}>
-          <Text style={styles.connectionErrorText}>
-            ⚠️ Connection issue detected. Your complaint will be saved locally.
+    <View style={styles.container}>
+      <View style={styles.backgroundContainer}>
+        <View style={styles.gradientOverlay} />
+      </View>
+
+      <ScrollView style={styles.contentContainer} showsVerticalScrollIndicator={false}>
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Complaint Details</Text>
+
+          <Text style={styles.label}>Category</Text>
+          <View style={styles.categoryContainer}>
+            {categories.map((cat) => (
+              <TouchableOpacity
+                key={cat}
+                style={[
+                  styles.categoryButton,
+                  category === cat && styles.categoryButtonSelected
+                ]}
+                onPress={() => setCategory(cat)}
+                disabled={uploading || imageUploading}
+              >
+                <Text style={[
+                  styles.categoryText,
+                  category === cat && styles.categoryTextSelected
+                ]}>
+                  {cat}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <Text style={styles.label}>Description</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Describe your issue in details"
+            placeholderTextColor="#88B2FF"
+            value={description}
+            onChangeText={setDescription}
+            multiline
+            numberOfLines={6}
+            editable={!uploading && !imageUploading}
+            maxLength={500}
+          />
+          <Text style={styles.characterCount}>
+            {description.length}/500 characters
           </Text>
-        </View>
-      )}
 
-      <Text style={styles.label}>Category:</Text>
-      <View style={styles.categoryContainer}>
-        {categories.map((cat) => (
-          <TouchableOpacity
-            key={cat}
-            style={[styles.categoryButton, category === cat && styles.categoryButtonSelected]}
-            onPress={() => setCategory(cat)}
-            disabled={uploading}
-          >
-            <Text style={[styles.categoryText, category === cat && styles.categoryTextSelected]}>
-              {cat}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      <Text style={styles.label}>Description:</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="Describe your issue in detail..."
-        placeholderTextColor={isDarkMode ? '#aaa' : '#888'}
-        value={description}
-        onChangeText={setDescription}
-        multiline
-        numberOfLines={4}
-        editable={!uploading}
-      />
-
-      <Text style={styles.label}>Visibility:</Text>
-      <View style={styles.radioContainer}>
-        <TouchableOpacity
-          style={[styles.radioButton, visibility === 'public' && styles.radioButtonSelected]}
-          onPress={() => setVisibility('public')}
-          disabled={uploading}
-        >
-          {visibility === 'public' && <View style={styles.radioInner} />}
-        </TouchableOpacity>
-        <Text style={styles.radioText}>Public (Visible to all students)</Text>
-      </View>
-
-      <View style={styles.radioContainer}>
-        <TouchableOpacity
-          style={[styles.radioButton, visibility === 'private' && styles.radioButtonSelected]}
-          onPress={() => setVisibility('private')}
-          disabled={uploading}
-        >
-          {visibility === 'private' && <View style={styles.radioInner} />}
-        </TouchableOpacity>
-        <Text style={styles.radioText}>Private (Only visible to warden/staff)</Text>
-      </View>
-
-      <Text style={styles.label}>Add Photo (Optional):</Text>
-      <View style={styles.imageContainer}>
-        {image && (
-          <>
-            <Image
-              source={{ uri: image }}
-              style={styles.image}
-              resizeMode="cover"
-            />
-            <Text style={styles.selectedImageText}>Image selected</Text>
-          </>
-        )}
-
-        <View style={styles.buttonGroup}>
-          <TouchableOpacity
-            style={styles.imageButton}
-            onPress={pickImage}
-            disabled={uploading}
-          >
-            <Ionicons
-              name="image"
-              size={16}
-              color={isDarkMode ? 'white' : 'black'}
-            />
-            <Text style={styles.buttonText}>Choose Photo</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.imageButton}
-            onPress={takePhoto}
-            disabled={uploading}
-          >
-            <Ionicons
-              name="camera"
-              size={16}
-              color={isDarkMode ? 'white' : 'black'}
-            />
-            <Text style={styles.buttonText}>Take Photo</Text>
-          </TouchableOpacity>
-
-          {image && (
+          <Text style={styles.label}>Visibility</Text>
+          <View style={styles.radioContainer}>
             <TouchableOpacity
-              style={[styles.imageButton, { backgroundColor: isDarkMode ? '#ff4444' : '#ff6b6b' }]}
-              onPress={() => setImage(null)}
-              disabled={uploading}
+              style={[
+                styles.radioButton,
+                visibility === 'public' && styles.radioButtonSelected
+              ]}
+              onPress={() => setVisibility('public')}
+              disabled={uploading || imageUploading}
             >
-              <Ionicons
-                name="close"
-                size={16}
-                color="white"
-              />
-              <Text style={[styles.buttonText, { color: 'white' }]}>Remove</Text>
+              {visibility === 'public' && <View style={styles.radioInner} />}
             </TouchableOpacity>
-          )}
-        </View>
-      </View>
+            <Text style={styles.radioText}>
+              Public (Visible to all students)
+            </Text>
+          </View>
 
-      {uploading && (
-        <View style={styles.uploadLoadingContainer}>
-          <ActivityIndicator size="small" color="#007AFF" />
-          <Text style={styles.loadingText}>Uploading your complaint...</Text>
-        </View>
-      )}
+          <View style={styles.radioContainer}>
+            <TouchableOpacity
+              style={[
+                styles.radioButton,
+                visibility === 'private' && styles.radioButtonSelected
+              ]}
+              onPress={() => setVisibility('private')}
+              disabled={uploading || imageUploading}
+            >
+              {visibility === 'private' && <View style={styles.radioInner} />}
+            </TouchableOpacity>
+            <Text style={styles.radioText}>
+              Private (Only visible to warden/staff)
+            </Text>
+          </View>
 
-      <View style={styles.submitButton}>
-        <Button
-          title={uploading ? "Submitting..." : "Submit Complaint"}
+          <Text style={styles.label}>Add Photo (Optional)</Text>
+          <View style={styles.imageContainer}>
+            {image && (
+              <>
+                <Image
+                  source={{ uri: image }}
+                  style={styles.image}
+                  resizeMode="cover"
+                />
+                <Text style={styles.selectedImageText}>Image selected</Text>
+              </>
+            )}
+
+            {imageUploading && (
+              <View style={styles.uploadStatus}>
+                <ActivityIndicator size="small" color="#007AFF" />
+                <Text style={styles.uploadStatusText}>Uploading image...</Text>
+              </View>
+            )}
+
+            <View style={styles.imageButtonsContainer}>
+              <TouchableOpacity
+                style={styles.imageButton}
+                onPress={pickImage}
+                disabled={uploading || imageUploading}
+              >
+                <Ionicons name="image" size={18} color="white" />
+                <Text style={styles.buttonText}>Choose Photo</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.imageButton}
+                onPress={takePhoto}
+                disabled={uploading || imageUploading}
+              >
+                <Ionicons name="camera" size={18} color="white" />
+                <Text style={styles.buttonText}>Take Photo</Text>
+              </TouchableOpacity>
+
+              {image && (
+                <TouchableOpacity
+                  style={[styles.imageButton, styles.removeButton]}
+                  onPress={removeImage}
+                  disabled={uploading || imageUploading}
+                >
+                  <Ionicons name="close" size={18} color="white" />
+                  <Text style={styles.buttonText}>Remove</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        </View>
+
+        <TouchableOpacity
+          style={[
+            styles.submitButton,
+            (uploading || imageUploading || !description.trim()) && styles.submitButtonDisabled
+          ]}
           onPress={handleSubmit}
-          color="#007AFF"
-          disabled={uploading || !description.trim()}
-        />
-      </View>
-    </ScrollView>
+          disabled={uploading || imageUploading || !description.trim()}
+        >
+          {uploading &&
+            <ActivityIndicator color="white" />
+          }
+          <Text style={styles.submitButtonText}>
+            {uploading ? "Submitting..." : "Submit Complaint"}
+          </Text>
+        </TouchableOpacity>
+      </ScrollView>
+    </View>
   );
 }

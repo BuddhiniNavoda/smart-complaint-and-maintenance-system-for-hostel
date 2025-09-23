@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, TextInput, Button, StyleSheet, Alert, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, TextInput, Button, StyleSheet, Alert, TouchableOpacity, ActivityIndicator, Dimensions } from 'react-native';
 import { useColorScheme } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { ref, get } from 'firebase/database';
 import { database } from '../firebase/config';
+
+const { width, height } = Dimensions.get('window');
 
 export default function LoginScreen({ navigation }) {
   const [username, setUsername] = useState('');
@@ -19,13 +21,13 @@ export default function LoginScreen({ navigation }) {
       <Ionicons
         name={icon}
         size={20}
-        color={darkMode ? '#aaa' : '#888'}
+        color="#007AFF"
         style={styles.inputIcon}
       />
       <TextInput
-        style={[styles.input, { paddingLeft: 40 }]}
+        style={styles.input}
         placeholder={placeholder}
-        placeholderTextColor={darkMode ? '#aaa' : '#888'}
+        placeholderTextColor="#88B2FF"
         value={value}
         onChangeText={onChangeText}
         secureTextEntry={secureTextEntry && !showPassword}
@@ -40,12 +42,12 @@ export default function LoginScreen({ navigation }) {
           <Ionicons
             name={showPassword ? 'eye-off' : 'eye'}
             size={20}
-            color={darkMode ? '#aaa' : '#888'}
+            color="#007AFF"
           />
         </TouchableOpacity>
       )}
     </View>
-  ), [darkMode, showPassword]);
+  ), [showPassword]);
 
   const handleLogin = async () => {
     if (!username || !password) {
@@ -83,7 +85,9 @@ export default function LoginScreen({ navigation }) {
             userType: userFound.userType,
             hostel: userFound.hostel,
             room: userFound.room,
-            email: userFound.email
+            email: userFound.email,
+            hostelGender: userFound.hostelGender,
+            assignedHostelGender: userFound.assignedHostelGender || "undefined"
           };
 
           await AsyncStorage.setItem('userData', JSON.stringify(userToStore));
@@ -111,16 +115,6 @@ export default function LoginScreen({ navigation }) {
     }
   };
 
-  const handleLogout = async () => {
-    try {
-      await AsyncStorage.removeItem('userData');
-      Alert.alert("Success", "Logged out successfully");
-    } catch (error) {
-      console.error('Logout error:', error);
-      Alert.alert("Error", "Failed to logout");
-    }
-  };
-
   useEffect(() => {
     const checkLoggedIn = async () => {
       try {
@@ -145,97 +139,188 @@ export default function LoginScreen({ navigation }) {
       flex: 1,
       justifyContent: 'center',
       padding: 20,
-      backgroundColor: colorScheme === 'dark' ? '#121212' : 'white'
+      backgroundColor: '#86befa8d',
+    },
+    backgroundContainer: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+    },
+    gradientOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0, 122, 255, 0.1)',
+    },
+    contentContainer: {
+      backgroundColor: 'white',
+      borderRadius: 25,
+      padding: 30,
+      marginHorizontal: 10,
+      shadowColor: '#000',
+      shadowOffset: {
+        width: 0,
+        height: 10,
+      },
+      shadowOpacity: 0.25,
+      shadowRadius: 20,
+      elevation: 10,
     },
     title: {
-      fontSize: 24,
-      marginBottom: 20,
+      fontSize: 32,
+      marginBottom: 30,
       textAlign: 'center',
-      color: colorScheme === 'dark' ? 'white' : 'black'
+      color: '#007AFF',
+      fontWeight: 'bold',
+      letterSpacing: 1,
+    },
+    subtitle: {
+      fontSize: 16,
+      marginBottom: 30,
+      textAlign: 'center',
+      color: '#666',
     },
     inputContainer: {
       position: 'relative',
-      marginBottom: 15
+      marginBottom: 20,
     },
     inputIcon: {
       position: 'absolute',
       left: 15,
       top: 15,
-      zIndex: 1
+      zIndex: 1,
     },
     passwordToggle: {
       position: 'absolute',
       right: 15,
       top: 15,
-      zIndex: 1
+      zIndex: 1,
     },
     input: {
-      borderWidth: 1,
-      borderColor: darkMode ? '#333' : '#ddd',
-      backgroundColor: darkMode ? '#333' : 'white',
-      color: darkMode ? 'white' : 'black',
-      borderRadius: 10,
+      borderWidth: 2,
+      borderColor: '#E3F2FD',
+      backgroundColor: '#F8FBFF',
+      color: '#007AFF',
+      borderRadius: 15,
       padding: 15,
       paddingLeft: 45,
-      fontSize: 16
+      fontSize: 16,
+      fontWeight: '500',
     },
     buttonContainer: {
       marginVertical: 10,
-      borderRadius: 10,
-      overflow: 'hidden'
+      borderRadius: 15,
+      overflow: 'hidden',
+      backgroundColor: '#007AFF',
+      shadowColor: '#007AFF',
+      shadowOffset: {
+        width: 0,
+        height: 4,
+      },
+      shadowOpacity: 0.3,
+      shadowRadius: 8,
+      elevation: 5,
+    },
+    button: {
+      backgroundColor: '#007AFF',
+      paddingVertical: 15,
+      borderRadius: 15,
+    },
+    buttonText: {
+      color: 'white',
+      textAlign: 'center',
+      fontSize: 18,
+      fontWeight: 'bold',
     },
     signupText: {
       textAlign: 'center',
-      marginTop: 20,
-      color: colorScheme === 'dark' ? 'white' : 'black'
+      marginTop: 25,
+      color: '#666',
+      fontSize: 15,
     },
     signupLink: {
       color: '#007AFF',
-      fontWeight: 'bold'
+      fontWeight: 'bold',
+      fontSize: 15,
     },
     loader: {
-      marginVertical: 20
-    }
+      marginVertical: 20,
+    },
+    logoContainer: {
+      alignItems: 'center',
+      marginBottom: 10,
+    },
+    logo: {
+      width: 80,
+      height: 80,
+      backgroundColor: '#007AFF',
+      borderRadius: 40,
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginBottom: 10,
+      shadowColor: '#000',
+      shadowOffset: {
+        width: 0,
+        height: 5,
+      },
+      shadowOpacity: 0.2,
+      shadowRadius: 10,
+      elevation: 5,
+    },
   });
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Fixora Login</Text>
-
-      <InputWithIcon
-        icon="person"
-        placeholder="Email"
-        value={username}
-        onChangeText={setUsername}
-      />
-
-      <InputWithIcon
-        icon="lock-closed"
-        placeholder="Password"
-        value={password}
-        onChangeText={setPassword}
-        secureTextEntry={true}
-      />
-
-      <View style={styles.buttonContainer}>
-        {loading ? (
-          <ActivityIndicator size="small" color="#007AFF" style={styles.loader} />
-        ) : (
-          <Button
-            title="Login"
-            onPress={handleLogin}
-            color="#007AFF"
-            disabled={loading}
-          />
-        )}
+      <View style={styles.backgroundContainer}>
+        <View style={styles.gradientOverlay} />
       </View>
 
-      <Text style={styles.signupText}>
-        Don't have an account?{' '}
-        <Text style={styles.signupLink} onPress={() => navigation.navigate('SignUp')}>
-          Sign Up
+      <View style={styles.contentContainer}>
+        <View style={styles.logoContainer}>
+          <View style={styles.logo}>
+            <Ionicons name="build" size={40} color="white" />
+          </View>
+        </View>
+
+        <Text style={styles.title}>Fixora</Text>
+        <Text style={styles.subtitle}>The smart gateway of hostal complaint management</Text>
+
+        <InputWithIcon
+          icon="person"
+          placeholder="Email"
+          value={username}
+          onChangeText={setUsername}
+        />
+
+        <InputWithIcon
+          icon="lock-closed"
+          placeholder="Password"
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry={true}
+        />
+
+        <View style={styles.buttonContainer}>
+          {loading ? (
+            <ActivityIndicator size="small" color="white" style={styles.loader} />
+          ) : (
+            <TouchableOpacity
+              style={styles.button}
+              onPress={handleLogin}
+              disabled={loading}
+            >
+              <Text style={styles.buttonText}>Login</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        <Text style={styles.signupText}>
+          Don't have an account?{' '}
+          <Text style={styles.signupLink} onPress={() => navigation.navigate('SignUp')}>
+            Sign Up
+          </Text>
         </Text>
-      </Text>
+      </View>
     </View>
   );
 }

@@ -1,21 +1,27 @@
 import { initializeApp } from "firebase/app";
 import { getDatabase } from 'firebase/database';
-import { getStorage } from 'firebase/storage';
-import { getAuth } from 'firebase/auth';
+import {
+    firebase_apiKey,
+    firebase_authDomain,
+    firebase_databaseURL,
+    firebase_projectId,
+    firebase_storageBucket,
+    firebase_messagingSenderId,
+    firebase_appId,
+    firebase_measurementId
+} from "@env";
 
 const firebaseConfig = {
-    apiKey: "AIzaSyD5Fmu_LWjiZXR_HdswUUbvW4UOIfQTHJg",
-    authDomain: "fixora-be66c.firebaseapp.com",
-    databaseURL: "https://fixora-be66c-default-rtdb.asia-southeast1.firebasedatabase.app",
-    projectId: "fixora-be66c",
-    storageBucket: "fixora-be66c.firebasestorage.app",
-    messagingSenderId: "721607078009",
-    appId: "1:721607078009:web:59383bff51a16caa5964a8",
-    measurementId: "G-5MFECJ570K"
+    apiKey: firebase_apiKey,
+    authDomain: firebase_authDomain,
+    databaseURL: firebase_databaseURL,
+    projectId: firebase_projectId,
+    storageBucket: firebase_storageBucket,
+    messagingSenderId: firebase_messagingSenderId,
+    appId: firebase_appId,
+    measurementId: firebase_measurementId
 };
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 export const database = getDatabase(app);
-export const storage = getStorage(app);
-export const auth = getAuth(app);
