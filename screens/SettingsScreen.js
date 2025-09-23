@@ -8,40 +8,79 @@ import { ThemeContext } from '../context/ThemeContext';
 const defaultProfilePicture = require("../assets/default_profile_picture.png");
 
 export default function SettingsScreen({ navigation, route }) {
-    const { userData } = route.params;
+    const [userData, setUserData] = useState(null);
     const [image, setImage] = useState(defaultProfilePicture);
     const [isLoading, setIsLoading] = useState(true);
     const { isDarkMode: darkMode, toggleTheme } = useContext(ThemeContext);
 
-    // Load saved theme preference and profile picture
+    // Load user data from AsyncStorage and profile picture
     useEffect(() => {
-        const loadSettings = async () => {
+        const loadUserData = async () => {
             try {
-                // Load profile picture
-                const savedImage = await AsyncStorage.getItem(`Fixora_profilePicture_${userData.username}`);
-                if (savedImage) {
-                    setImage({ uri: savedImage });
+                // Load user data from AsyncStorage
+                const storedUserData = await AsyncStorage.getItem('userData');
+                if (storedUserData) {
+                    const parsedData = JSON.parse(storedUserData);
+                    setUserData(parsedData);
+
+                    // Load profile picture
+                    const savedImage = await AsyncStorage.getItem(`Fixora_profilePicture_${parsedData.username}`);
+                    if (savedImage) {
+                        setImage({ uri: savedImage });
+                    }
+                } else if (route.params?.userData) {
+                    // Fallback to route params if AsyncStorage doesn't have data
+                    setUserData(route.params.userData);
+
+                    // Load profile picture for route params user
+                    const savedImage = await AsyncStorage.getItem(`Fixora_profilePicture_${route.params.userData.username}`);
+                    if (savedImage) {
+                        setImage({ uri: savedImage });
+                    }
                 }
             } catch (error) {
-                console.error('Error loading settings:', error);
+                console.error('Error loading user data:', error);
+                Alert.alert("Error", "Failed to load user data");
             } finally {
                 setIsLoading(false);
             }
         };
-        loadSettings();
-    }, [userData.username]);
+
+        loadUserData();
+    }, [route.params]);
 
     const handleLogout = async () => {
-        try {
-            await AsyncStorage.removeItem('userData');
-            navigation.navigate('Login');
-        } catch (error) {
-            Alert.alert("Error", "Failed to logout");
-            console.error('Error during logout:', error);
-        }
+        Alert.alert(
+            "Logout",
+            "Are you sure you want to logout?",
+            [
+                {
+                    text: "Cancel",
+                    style: "cancel"
+                },
+                {
+                    text: "Logout",
+                    onPress: async () => {
+                        try {
+                            await AsyncStorage.removeItem('userData');
+                            navigation.reset({
+                                index: 0,
+                                routes: [{ name: 'Login' }],
+                            });
+                        } catch (error) {
+                            Alert.alert("Error", "Failed to logout");
+                            console.error('Error during logout:', error);
+                        }
+                    },
+                    style: "destructive"
+                }
+            ]
+        );
     };
 
     const pickImage = async () => {
+        if (!userData) return;
+
         let result = await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ImagePicker.MediaTypeOptions.Images,
             allowsEditing: true,
@@ -55,9 +94,24 @@ export default function SettingsScreen({ navigation, route }) {
 
             try {
                 await AsyncStorage.setItem(`Fixora_profilePicture_${userData.username}`, imageUri);
+                Alert.alert("Success", "Profile picture updated successfully");
             } catch (error) {
                 console.error("Error saving profile picture:", error);
+                Alert.alert("Error", "Failed to save profile picture");
             }
+        }
+    };
+
+    const clearProfilePicture = async () => {
+        if (!userData) return;
+
+        try {
+            await AsyncStorage.removeItem(`Fixora_profilePicture_${userData.username}`);
+            setImage(defaultProfilePicture);
+            Alert.alert("Success", "Profile picture removed");
+        } catch (error) {
+            console.error("Error removing profile picture:", error);
+            Alert.alert("Error", "Failed to remove profile picture");
         }
     };
 
@@ -112,12 +166,29 @@ export default function SettingsScreen({ navigation, route }) {
             shadowRadius: 4,
             elevation: 3
         },
+        profileImageContainer: {
+            alignItems: 'center',
+            marginBottom: 15
+        },
         profileImage: {
             width: 90,
             height: 90,
             borderRadius: 45,
-            marginBottom: 15,
-            alignSelf: 'center'
+            marginBottom: 10
+        },
+        profileImageButtons: {
+            flexDirection: 'row',
+            justifyContent: 'center',
+            gap: 10
+        },
+        profileImageButton: {
+            padding: 5,
+            backgroundColor: darkMode ? '#333' : '#ddd',
+            borderRadius: 5
+        },
+        profileImageButtonText: {
+            color: darkMode ? 'white' : 'black',
+            fontSize: 12
         },
         userInfoRow: {
             flexDirection: 'row',
@@ -130,58 +201,99 @@ export default function SettingsScreen({ navigation, route }) {
         },
         userInfoValue: {
             color: darkMode ? 'white' : 'black',
-            fontSize: 16
+            fontSize: 16,
+            fontWeight: '500'
         },
         logoutButton: {
             backgroundColor: '#ff3b30',
             padding: 15,
             borderRadius: 10,
             alignItems: 'center',
-            marginTop: 20
+            marginTop: 20,
+            marginBottom: 50
         },
         logoutText: {
             color: 'white',
             fontSize: 16,
             fontWeight: 'bold'
+        },
+        loadingContainer: {
+            flex: 1,
+            justifyContent: 'center',
+            alignItems: 'center',
+            backgroundColor: darkMode ? '#121212' : '#f5f5f5'
+        },
+        loadingText: {
+            color: darkMode ? 'white' : 'black',
+            fontSize: 16,
+            marginTop: 10
         }
     });
 
     if (isLoading) {
-        return null; // Or a loading spinner
+        return (
+            <View style={styles.loadingContainer}>
+                <Text style={styles.loadingText}>Loading...</Text>
+            </View>
+        );
+    }
+
+    if (!userData) {
+        return (
+            <View style={styles.container}>
+                <Text style={styles.title}>No User Data Found</Text>
+                <TouchableOpacity
+                    style={styles.logoutButton}
+                    onPress={() => navigation.navigate('Login')}
+                >
+                    <Text style={styles.logoutText}>Go to Login</Text>
+                </TouchableOpacity>
+            </View>
+        );
     }
 
     return (
         <ScrollView style={styles.container}>
             <View style={styles.userInfoContainer}>
-                <TouchableOpacity onPress={pickImage}>
-                    <Image
-                        source={image}
-                        style={styles.profileImage}
-                    />
-                </TouchableOpacity>
+                <View style={styles.profileImageContainer}>
+                    <TouchableOpacity onPress={pickImage}>
+                        <Image
+                            source={image}
+                            style={styles.profileImage}
+                        />
+                    </TouchableOpacity>
+                    <View style={styles.profileImageButtons}>
+                        <TouchableOpacity onPress={pickImage} style={styles.profileImageButton}>
+                            <Text style={styles.profileImageButtonText}>Change</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={clearProfilePicture} style={styles.profileImageButton}>
+                            <Text style={styles.profileImageButtonText}>Remove</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
 
                 <View style={styles.userInfoRow}>
                     <Text style={styles.userInfoLabel}>Name:</Text>
-                    <Text style={styles.userInfoValue}>{userData.name}</Text>
+                    <Text style={styles.userInfoValue}>{userData.name || 'N/A'}</Text>
                 </View>
                 <View style={styles.userInfoRow}>
-                    <Text style={styles.userInfoLabel}>Username:</Text>
-                    <Text style={styles.userInfoValue}>{userData.username}</Text>
+                    <Text style={styles.userInfoLabel}>Email:</Text>
+                    <Text style={styles.userInfoValue}>{userData.email || userData.username || 'N/A'}</Text>
                 </View>
                 <View style={styles.userInfoRow}>
                     <Text style={styles.userInfoLabel}>User Type:</Text>
-                    <Text style={styles.userInfoValue}>{userData.userType}</Text>
+                    <Text style={styles.userInfoValue}>{userData.userType || 'N/A'}</Text>
                 </View>
 
                 {userData.userType === 'student' && (
                     <>
                         <View style={styles.userInfoRow}>
                             <Text style={styles.userInfoLabel}>Hostel:</Text>
-                            <Text style={styles.userInfoValue}>{userData.hostel}</Text>
+                            <Text style={styles.userInfoValue}>{userData.hostel || 'N/A'}</Text>
                         </View>
                         <View style={styles.userInfoRow}>
                             <Text style={styles.userInfoLabel}>Room:</Text>
-                            <Text style={styles.userInfoValue}>{userData.room}</Text>
+                            <Text style={styles.userInfoValue}>{userData.room || 'N/A'}</Text>
                         </View>
                     </>
                 )}
@@ -189,14 +301,14 @@ export default function SettingsScreen({ navigation, route }) {
                 {userData.userType === 'warden' && (
                     <View style={styles.userInfoRow}>
                         <Text style={styles.userInfoLabel}>Responsibility:</Text>
-                        <Text style={styles.userInfoValue}>{userData.hostel}</Text>
+                        <Text style={styles.userInfoValue}>{userData.hostel || userData.responsibility || 'N/A'}</Text>
                     </View>
                 )}
 
                 {userData.userType === 'staff' && (
                     <View style={styles.userInfoRow}>
                         <Text style={styles.userInfoLabel}>Department:</Text>
-                        <Text style={styles.userInfoValue}>{userData.department}</Text>
+                        <Text style={styles.userInfoValue}>{userData.department || 'N/A'}</Text>
                     </View>
                 )}
             </View>
@@ -212,6 +324,15 @@ export default function SettingsScreen({ navigation, route }) {
                         thumbColor={darkMode ? '#f5f5f5' : '#f4f3f4'}
                     />
                 </View>
+            </View>
+
+            <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
+                <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Account</Text>
+                <TouchableOpacity
+                    onPress={() => Alert.alert("Info", "Account management features coming soon!")}
+                >
+                    <Text style={[styles.settingText, { marginBottom: 0 }]}>Change Password</Text>
+                </TouchableOpacity>
             </View>
 
             <TouchableOpacity
