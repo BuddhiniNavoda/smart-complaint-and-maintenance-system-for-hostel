@@ -291,7 +291,7 @@ export default function HomeScreen({ navigation, route }) {
       position: 'absolute',
       right: 20,
       bottom: 20,
-      backgroundColor: '#00000',
+      backgroundColor: '#000000',
       width: 56,
       height: 56,
       borderRadius: 28,
