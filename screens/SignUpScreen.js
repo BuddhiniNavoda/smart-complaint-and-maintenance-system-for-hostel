@@ -1,11 +1,10 @@
-
 import React, { useState } from 'react';
 import { View, Text, TextInput, Button, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, ScrollView } from 'react-native';
 import { useColorScheme } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { ref, set } from 'firebase/database';
-import { database } from '../firebase/config'; // Adjust the path as needed
+import { database } from '../firebase/config';
 
 const hostelBlocks = [
     'Block A',
@@ -30,17 +29,55 @@ export default function SignUpScreen({ navigation }) {
     const colorScheme = useColorScheme();
     const darkMode = colorScheme === 'dark';
 
-    // ✅ Email validation function
+    // ✅ Enhanced Email validation function for all three formats
     const validateEmail = (email) => {
-        const regex = /^20\d{2}\/(ENG|AGR|TEC)\/\d{3}@gmail\.com$/;
-        return regex.test(email);
+        // Format 1: Student - 20XX/XXX/(ENG|AGR|TEC)@gmail.com
+        const studentRegex = /^20\d{2}\/(ENG|AGR|TEC)\/\d{3}@gmail\.com$/;
+        
+        // Format 2: Warden - WAR/[A,B,C]/XXX@gmail.com
+        const wardenRegex = /^WAR\/[A,B,C]\/\d{3}@gmail\.com$/;
+        
+        // Format 3: Staff - Stf/XXX@gmail.com
+        const staffRegex = /^Stf\/\d{3}@gmail\.com$/;
+        
+        return studentRegex.test(email) || wardenRegex.test(email) || staffRegex.test(email);
+    };
+
+    // ✅ Determine user type based on email format
+    const getUserTypeFromEmail = (email) => {
+        if (/^20\d{2}\/(ENG|AGR|TEC)\/\d{3}@gmail\.com$/.test(email)) {
+            return 'student';
+        } else if (/^WAR\/[A,B,C]\/\d{3}@gmail\.com$/.test(email)) {
+            return 'warden';
+        } else if (/^Stf\/\d{3}@gmail\.com$/.test(email)) {
+            return 'staff';
+        }
+        return 'student'; // default
+    };
+
+    // ✅ Get appropriate placeholder text based on email input
+    const getEmailPlaceholder = (email) => {
+        if (email.includes('20')) {
+            return "Email (20XX/XXX/ENG@gmail.com)";
+        } else if (email.includes('WAR')) {
+            return "Email (WAR/A/XXX@gmail.com)";
+        } else if (email.includes('Stf')) {
+            return "Email (Stf/XXX@gmail.com)";
+        }
+        return "Email (student/warden/staff format)";
     };
 
     const handleSignUp = async () => {
-        if (!validateEmail(email)) {
+        // Clean email by removing spaces
+        const cleanEmail = email.replace(/\s/g, '');
+        
+        if (!validateEmail(cleanEmail)) {
             Alert.alert(
                 "Invalid Email",
-                "Email must be in the format: 20XX/XXX/(ENG|AGR|TEC)@gmail.com"
+                "Email must be in one of these formats:\n\n" +
+                "• Student: 20XX/XXX/(ENG|AGR|TEC)@gmail.com\n" +
+                "• Warden: WAR/[A,B,C]/XXX@gmail.com\n" +
+                "• Staff: Stf/XXX@gmail.com"
             );
             return;
         }
@@ -61,23 +98,43 @@ export default function SignUpScreen({ navigation }) {
             // Generate a timestamp-based ID
             const id = Date.now().toString();
             
+            // Determine user type from email
+            const userType = getUserTypeFromEmail(cleanEmail);
+            
             // Create user data object with the exact structure you requested
             const userData = {
                 id: id,
                 name: name,
-                email: email,
+                email: cleanEmail,
                 password: password,
-                hostel: hostel,
-                room: room,
-                userType: 'student',
+                userType: userType,
                 createdAt: new Date().toISOString()
             };
+
+            // Add hostel and room only for students and wardens (not for staff)
+            if (userType === 'student' || userType === 'warden') {
+                userData.hostel = hostel;
+                userData.room = room;
+            } else if (userType === 'staff') {
+                // Staff only has room, no hostel
+                userData.room = room;
+            }
             
             // Write to Firebase Realtime Database using the ID as the key
             await set(ref(database, 'users/' + id), userData);
             
             console.log('Sign Up Data:', userData);
-            Alert.alert("Success", "Account created successfully!");
+            
+            let successMessage = "Account created successfully!";
+            if (userType === 'warden') {
+                successMessage += "\nUser Type: Warden";
+            } else if (userType === 'staff') {
+                successMessage += "\nUser Type: Staff";
+            } else {
+                successMessage += "\nUser Type: Student";
+            }
+            
+            Alert.alert("Success", successMessage);
             
             // Clear form
             setName('');
@@ -85,6 +142,7 @@ export default function SignUpScreen({ navigation }) {
             setPassword('');
             setConfirmPassword('');
             setRoom('');
+            setHostel(hostelBlocks[0]);
             
             navigation.navigate('Login');
         } catch (error) {
@@ -192,16 +250,32 @@ export default function SignUpScreen({ navigation }) {
             fontSize: 40,
             marginBottom: 10,
             color: darkMode ? '#4CAF50' : '#2E7D32'
+        },
+        userTypeIndicator: {
+            textAlign: 'center',
+            fontSize: 14,
+            marginBottom: 10,
+            color: darkMode ? '#4CAF50' : '#2E7D32',
+            fontWeight: 'bold'
         }
     });
+
+    // Determine current user type for display
+    const currentUserType = email ? getUserTypeFromEmail(email.replace(/\s/g, '')) : '';
 
     return (
         <ScrollView contentContainerStyle={styles.scrollContainer}>
             <View style={styles.container}>
                 <View style={styles.header}>
                     <Text style={styles.logo}>📝</Text>
-                    <Text style={styles.title}>Student Registration</Text>
+                    <Text style={styles.title}>User Registration</Text>
                 </View>
+
+                {currentUserType && (
+                    <Text style={styles.userTypeIndicator}>
+                        Detected: {currentUserType.toUpperCase()} Account
+                    </Text>
+                )}
 
                 <View style={styles.inputContainer}>
                     <Ionicons
@@ -228,7 +302,7 @@ export default function SignUpScreen({ navigation }) {
                     />
                     <TextInput
                         style={styles.input}
-                        placeholder="Email (20XX/XXX/ENG@gmail.com)"
+                        placeholder={getEmailPlaceholder(email)}
                         value={email}
                         onChangeText={setEmail}
                         keyboardType="email-address"
@@ -291,25 +365,28 @@ export default function SignUpScreen({ navigation }) {
                     </TouchableOpacity>
                 </View>
 
-                <View style={styles.pickerContainer}>
-                    <Ionicons
-                        name="home"
-                        size={20}
-                        color={darkMode ? '#aaa' : '#888'}
-                        style={styles.pickerIcon}
-                    />
-                    <Picker
-                        selectedValue={hostel}
-                        onValueChange={(itemValue) => setHostel(itemValue)}
-                        style={styles.picker}
-                        dropdownIconColor={darkMode ? '#aaa' : '#888'}
-                        mode="dropdown"
-                    >
-                        {hostelBlocks.map((block) => (
-                            <Picker.Item key={block} label={block} value={block} />
-                        ))}
-                    </Picker>
-                </View>
+                {/* Show hostel picker only for students and wardens */}
+                {(currentUserType === 'student' || currentUserType === 'warden' || !currentUserType) && (
+                    <View style={styles.pickerContainer}>
+                        <Ionicons
+                            name="home"
+                            size={20}
+                            color={darkMode ? '#aaa' : '#888'}
+                            style={styles.pickerIcon}
+                        />
+                        <Picker
+                            selectedValue={hostel}
+                            onValueChange={(itemValue) => setHostel(itemValue)}
+                            style={styles.picker}
+                            dropdownIconColor={darkMode ? '#aaa' : '#888'}
+                            mode="dropdown"
+                        >
+                            {hostelBlocks.map((block) => (
+                                <Picker.Item key={block} label={block} value={block} />
+                            ))}
+                        </Picker>
+                    </View>
+                )}
 
                 <View style={styles.inputContainer}>
                     <Ionicons
@@ -341,7 +418,7 @@ export default function SignUpScreen({ navigation }) {
                 </View>
 
                 <Text style={styles.noteText}>
-                    Note: Your data will be stored securely in our database
+                    Supported formats: Student (20XX/XXX/ENG), Warden (WAR/A/XXX), Staff (Stf/XXX)
                 </Text>
 
                 <Text style={styles.loginText}>
