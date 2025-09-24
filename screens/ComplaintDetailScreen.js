@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { ThemeContext } from '../context/ThemeContext';
 import { ref, update, remove } from 'firebase/database';
 import { database } from '../firebase/config';
+import useAlert from '../hooks/useAlert';
 
 export default function ComplaintDetailScreen({ navigation, route }) {
   const { complaint, userType } = route.params;
@@ -28,6 +29,7 @@ export default function ComplaintDetailScreen({ navigation, route }) {
   const [editCategory, setEditCategory] = useState(complaint.category);
   const [editVisibility, setEditVisibility] = useState(complaint.visibility);
   const [showEditModal, setShowEditModal] = useState(false);
+  const { showAlert, AlertComponent } = useAlert();
 
   const categories = [
     'Electrical', 'Plumbing', 'Carpentry', 'Cleaning',
@@ -49,8 +51,7 @@ export default function ComplaintDetailScreen({ navigation, route }) {
           setUserData(route.params.userData);
         }
       } catch (error) {
-        console.error('Error loading user data:', error);
-        Alert.alert("Error", "Failed to load user data");
+        showAlert("Error", "Failed to load user data", [], 'error');
       } finally {
         setLoading(false);
       }
@@ -87,10 +88,9 @@ export default function ComplaintDetailScreen({ navigation, route }) {
         updatedAt: new Date().toISOString()
       }));
 
-      Alert.alert('Success', 'Complaint approved successfully');
+      showAlert("Success", "Complaint approved successfully", [], 'success');
     } catch (error) {
-      console.error('Approval error:', error);
-      Alert.alert('Error', 'Failed to approve complaint');
+      showAlert("Error", "Failed to approve complaint", [], 'error');
     } finally {
       setLoading(false);
     }
@@ -115,10 +115,9 @@ export default function ComplaintDetailScreen({ navigation, route }) {
         updatedAt: new Date().toISOString()
       }));
 
-      Alert.alert('Success', 'Complaint marked as fixed');
+      showAlert("Success", "Complaint marked as fixed", [], 'success');
     } catch (error) {
-      console.error('Mark as fixed error:', error);
-      Alert.alert('Error', 'Failed to mark complaint as fixed');
+      showAlert("Error", "Failed to mark complaint as fixed", [], 'error');
     } finally {
       setLoading(false);
     }
@@ -133,7 +132,7 @@ export default function ComplaintDetailScreen({ navigation, route }) {
 
   const saveEdit = async () => {
     if (!editDescription.trim()) {
-      Alert.alert('Error', 'Please enter a description');
+      showAlert("Warning", "Please enter a description", [], 'warning');
       return;
     }
 
@@ -160,58 +159,43 @@ export default function ComplaintDetailScreen({ navigation, route }) {
       }));
 
       setShowEditModal(false);
-      Alert.alert('Success', 'Complaint updated successfully');
+      showAlert("Success", "Complaint updated successfully", [], 'success');
     } catch (error) {
-      console.error('Edit error:', error);
-      Alert.alert('Error', 'Failed to update complaint');
+      showAlert("Error", "Failed to update complaint", [], 'error');
     } finally {
       setLoading(false);
     }
   };
 
   const deleteComplaint = async () => {
-    Alert.alert(
-      'Delete Complaint',
-      'Are you sure you want to delete this complaint? This action cannot be undone.',
+    showAlert(
+      "Delete Complaint",
+      "Are you sure you want to delete this complaint? This action cannot be undone",
       [
         {
-          text: 'Cancel',
-          style: 'cancel'
+          text: "Cancel",
+          style: "cancel",
         },
         {
-          text: 'Delete',
-          style: 'destructive',
+          text: "Delete",
+          style: "destructive",
           onPress: async () => {
             setLoading(true);
             try {
               const complaintRef = ref(database, `complaints/${currentComplaint.id}`);
-
-              // Option 1: Permanently delete from database
               await remove(complaintRef);
-
-              // Option 2: If you want to keep a backup, use soft delete (comment out the remove line above)
-              // await update(complaintRef, {
-              //   status: 'Deleted',
-              //   deletedAt: new Date().toISOString(),
-              //   deletedBy: userData.name || userData.username
-              // });
-
-              console.log('Complaint permanently deleted from database');
-
-              Alert.alert('Success', 'Complaint deleted successfully');
-
-              // Navigate back after successful deletion
+              showAlert("Success", "Complaint deleted successfully", [], 'success');
               setTimeout(() => navigation.goBack(), 1000);
 
             } catch (error) {
-              console.error('Delete error:', error);
-              Alert.alert('Error', 'Failed to delete complaint');
+              showAlert("Error", "Failed to delete complaint", [], 'error');
             } finally {
               setLoading(false);
             }
           }
         }
-      ]
+      ],
+      'warning'
     );
   };
 
@@ -1020,6 +1004,7 @@ export default function ComplaintDetailScreen({ navigation, route }) {
           </View>
         </View>
       </Modal>
+      <AlertComponent />
     </View>
   );
 }

@@ -5,7 +5,6 @@ import {
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  Alert,
   ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,6 +13,7 @@ import { useIsFocused } from '@react-navigation/native';
 import { ThemeContext } from '../context/ThemeContext';
 import { ref, onValue, off, get, update } from 'firebase/database';
 import { database } from '../firebase/config';
+import useAlert from '../hooks/useAlert';
 
 export default function HomeScreen({ navigation, route }) {
   const { userType } = route.params;
@@ -25,6 +25,7 @@ export default function HomeScreen({ navigation, route }) {
   const { isDarkMode } = useContext(ThemeContext);
   const isFocused = useIsFocused();
   const [userData, setUserData] = useState(null);
+  const { showAlert, AlertComponent } = useAlert();
 
   useEffect(() => {
     const loadUserData = async () => {
@@ -38,8 +39,7 @@ export default function HomeScreen({ navigation, route }) {
           setUserData(route.params.userData);
         }
       } catch (error) {
-        console.error('Error loading user data:', error);
-        Alert.alert("Error", "Failed to load user data");
+        showAlert("Error", "Failed to load user data", [], 'error');
       } finally {
         setLoading(false);
       }
@@ -272,7 +272,7 @@ export default function HomeScreen({ navigation, route }) {
       setComplaints(originalComplaints);
       setVotedComplaints(votedComplaints);
 
-      Alert.alert("Error", "Failed to update vote. Please try again.");
+      showAlert("Error", "Failed to update vote. Please try again", [], 'error');
     }
   };
 
@@ -658,6 +658,7 @@ export default function HomeScreen({ navigation, route }) {
           <Ionicons name="add" size={28} color="#007AFF" />
         </TouchableOpacity>
       )}
+      <AlertComponent />
     </View>
   );
 }

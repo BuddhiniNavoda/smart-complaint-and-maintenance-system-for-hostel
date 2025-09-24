@@ -17,6 +17,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { ref, push, set, serverTimestamp } from 'firebase/database';
 import { database } from '../firebase/config';
 import CloudinaryService from '../services/cloudinaryService';
+import useAlert from '../hooks/useAlert';
 
 export default function AddComplaintScreen({ navigation, route }) {
   const [description, setDescription] = useState('');
@@ -27,6 +28,7 @@ export default function AddComplaintScreen({ navigation, route }) {
   const [imageUploading, setImageUploading] = useState(false);
   const [userData, setUserData] = useState(null);
   const { isDarkMode } = useContext(ThemeContext);
+  const { showAlert, AlertComponent } = useAlert();
 
   const categories = [
     'Electrical', 'Plumbing', 'Carpentry', 'Cleaning',
@@ -52,7 +54,7 @@ export default function AddComplaintScreen({ navigation, route }) {
     (async () => {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission required', 'We need camera roll permissions to upload images');
+        showAlert("Permission required", "We need camera roll permissions to upload images", [], 'success');
       }
     })();
   }, []);
@@ -95,7 +97,7 @@ export default function AddComplaintScreen({ navigation, route }) {
       return imageUrl;
     } catch (error) {
       console.error('Cloudinary upload error:', error);
-      Alert.alert('Upload Failed', 'Could not upload image. Please try again or submit without image.');
+      showAlert("Upload Failed", "Could not upload image. Please try again or submit without image", [], 'error');
       return null;
     } finally {
       setImageUploading(false);
@@ -104,12 +106,12 @@ export default function AddComplaintScreen({ navigation, route }) {
 
   const handleSubmit = async () => {
     if (!description.trim()) {
-      Alert.alert('Error', 'Please enter a description');
+      showAlert("Warning", "Please enter a description", [], 'warning');
       return;
     }
 
     if (!database) {
-      Alert.alert('Error', 'Database connection not available. Please try again later.');
+      showAlert("Error", "Database connection not available. Please try again later", [], 'error');
       return;
     }
 
@@ -121,7 +123,7 @@ export default function AddComplaintScreen({ navigation, route }) {
       if (image) {
         imageUrl = await uploadToCloudinary();
         if (!imageUrl) {
-          Alert.alert('Warning', 'Image upload failed. Submitting without image.');
+          showAlert("Warning", "Image upload failed. Submitting without image", [], 'warning');
         }
       }
 
@@ -171,18 +173,24 @@ export default function AddComplaintScreen({ navigation, route }) {
         console.warn('Failed to save complaint locally:', localError);
       }
 
-      Alert.alert('Success', 'Complaint submitted successfully!', [
-        {
-          text: 'OK',
-          onPress: () => {
-            setDescription('');
-            setVisibility('public');
-            setImage(null);
-            setCategory('Electrical');
-            navigation.goBack();
+      showAlert(
+        "Success",
+        "Complaint submitted successfully!",
+        [
+          {
+            text: "OK",
+            style: "destructive",
+            onPress: () => {
+              setDescription('');
+              setVisibility('public');
+              setImage(null);
+              setCategory('Electrical');
+              navigation.goBack();
+            }
           }
-        }
-      ]);
+        ],
+        'success'
+      );
 
     } catch (error) {
       console.error('Submission error:', error);
@@ -216,12 +224,13 @@ export default function AddComplaintScreen({ navigation, route }) {
           complaints.push(offlineComplaint);
           await AsyncStorage.setItem('complaints', JSON.stringify(complaints));
 
-          Alert.alert(
-            'Saved Offline',
-            'Complaint saved locally. It will sync when you have connection.',
+          showAlert(
+            "Saved Offline",
+            "Complaint saved locally. It will sync when you have connection",
             [
               {
-                text: 'OK',
+                text: "OK",
+                style: "destructive",
                 onPress: () => {
                   setDescription('');
                   setVisibility('public');
@@ -230,14 +239,15 @@ export default function AddComplaintScreen({ navigation, route }) {
                   navigation.goBack();
                 }
               }
-            ]
+            ],
+            'warning'
           );
         } catch (localError) {
           console.error('Local save error:', localError);
-          Alert.alert('Error', 'Failed to save complaint. Please try again.');
+          showAlert("Error", "Failed to save complaint. Please try again", [], 'error');
         }
       } else {
-        Alert.alert('Error', 'Failed to submit complaint. Please try again.');
+        showAlert("Error", "Failed to submit complaint. Please try again", [], 'error');
       }
     } finally {
       setUploading(false);
@@ -317,26 +327,27 @@ export default function AddComplaintScreen({ navigation, route }) {
       flexWrap: 'wrap',
       marginBottom: 20,
     },
-    categoryButton: {
-      backgroundColor: '#F8FBFF',
+    categoryOption: {
       paddingHorizontal: 10,
       paddingVertical: 5,
+      margin: 4,
       borderRadius: 20,
-      margin: 5,
-      borderWidth: 2,
-      borderColor: '#E3F2FD',
+      borderWidth: 1.5,
+      borderColor: '#007AFF',
+      backgroundColor: 'white',
     },
-    categoryButtonSelected: {
+    categoryOptionSelected: {
       backgroundColor: '#007AFF',
       borderColor: '#007AFF',
     },
     categoryText: {
       fontSize: 14,
-      fontWeight: '500',
       color: '#007AFF',
+      fontWeight: '500',
     },
     categoryTextSelected: {
       color: 'white',
+      fontWeight: '600',
     },
     input: {
       borderWidth: 2,
@@ -516,11 +527,10 @@ export default function AddComplaintScreen({ navigation, route }) {
               <TouchableOpacity
                 key={cat}
                 style={[
-                  styles.categoryButton,
-                  category === cat && styles.categoryButtonSelected
+                  styles.categoryOption,
+                  category === cat && styles.categoryOptionSelected
                 ]}
                 onPress={() => setCategory(cat)}
-                disabled={uploading || imageUploading}
               >
                 <Text style={[
                   styles.categoryText,
@@ -590,7 +600,6 @@ export default function AddComplaintScreen({ navigation, route }) {
                   style={styles.image}
                   resizeMode="cover"
                 />
-                <Text style={styles.selectedImageText}>Image selected</Text>
               </>
             )}
 
@@ -602,23 +611,25 @@ export default function AddComplaintScreen({ navigation, route }) {
             )}
 
             <View style={styles.imageButtonsContainer}>
-              <TouchableOpacity
-                style={styles.imageButton}
-                onPress={pickImage}
-                disabled={uploading || imageUploading}
-              >
-                <Ionicons name="image" size={18} color="white" />
-                <Text style={styles.buttonText}>Choose Photo</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.imageButton}
-                onPress={takePhoto}
-                disabled={uploading || imageUploading}
-              >
-                <Ionicons name="camera" size={18} color="white" />
-                <Text style={styles.buttonText}>Take Photo</Text>
-              </TouchableOpacity>
+              {!image && (
+                <>
+                  <TouchableOpacity
+                    style={styles.imageButton}
+                    onPress={pickImage}
+                    disabled={uploading || imageUploading}
+                  >
+                    <Ionicons name="image" size={18} color="white" />
+                    <Text style={styles.buttonText}>Choose Photo</Text>
+                  </TouchableOpacity><TouchableOpacity
+                    style={styles.imageButton}
+                    onPress={takePhoto}
+                    disabled={uploading || imageUploading}
+                  >
+                    <Ionicons name="camera" size={18} color="white" />
+                    <Text style={styles.buttonText}>Take Photo</Text>
+                  </TouchableOpacity>
+                </>
+              )}
 
               {image && (
                 <TouchableOpacity
@@ -650,6 +661,7 @@ export default function AddComplaintScreen({ navigation, route }) {
           </Text>
         </TouchableOpacity>
       </ScrollView>
+      <AlertComponent />
     </View>
   );
 }

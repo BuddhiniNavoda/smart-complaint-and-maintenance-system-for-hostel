@@ -5,18 +5,19 @@ import {
     TextInput,
     StyleSheet,
     TouchableOpacity,
-    Alert,
     ActivityIndicator,
     Dimensions,
     ScrollView,
     KeyboardAvoidingView,
-    Platform
+    Platform,
+    Image
 } from 'react-native';
 import { useColorScheme } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { ref, set } from 'firebase/database';
 import { database } from '../firebase/config';
+import useAlert from '../hooks/useAlert';
 
 const { width, height } = Dimensions.get('window');
 
@@ -46,27 +47,28 @@ export default function SignUpScreen({ navigation }) {
     const [loading, setLoading] = useState(false);
     const colorScheme = useColorScheme();
     const darkMode = colorScheme === 'dark';
+    const { showAlert, AlertComponent } = useAlert();
 
     const handleSignUp = async () => {
         // Basic validation
         if (!name || !email || !password || !confirmPassword || !room) {
-            Alert.alert("Error", "Please fill in all fields");
+            showAlert("Warning", "Please fill in all fields", [], 'warning');
             return;
         }
 
         if (password !== confirmPassword) {
-            Alert.alert("Error", "Passwords don't match");
+            showAlert("Error", "Passwords don't match", [], 'error');
             return;
         }
 
         if (password.length < 6) {
-            Alert.alert("Error", "Password should be at least 6 characters long");
+            showAlert("Warning", "Password should be at least 6 characters long", [], 'warning');
             return;
         }
 
         // Validate hostel gender selection
         if (hostel === 'Girls Hostel' && hostelGender !== 'Female') {
-            Alert.alert("Validation Error", "Girls Hostel must be selected as Female");
+            showAlert("Validation Error", "Girls Hostel must be selected as Female", [], 'error');
             return;
         }
 
@@ -93,8 +95,7 @@ export default function SignUpScreen({ navigation }) {
             // Save to Firebase Realtime Database
             await set(ref(database, 'users/' + userId), userData);
 
-            console.log('User data saved to Firebase:', userData);
-            Alert.alert("Success", "Account created successfully!");
+            showAlert("Success", "Account created successfully!", [], 'success');
 
             // Reset form
             setName('');
@@ -105,8 +106,7 @@ export default function SignUpScreen({ navigation }) {
 
             navigation.navigate('Login');
         } catch (error) {
-            console.error('Error saving user data:', error);
-            Alert.alert("Error", "Failed to create account. Please try again.");
+            showAlert("Error", "Failed to create account. Please try again", [], 'error');
         } finally {
             setLoading(false);
         }
@@ -282,25 +282,17 @@ export default function SignUpScreen({ navigation }) {
             marginTop: 20,
         },
         logoContainer: {
+            borderRadius: 70,
+            justifyContent: 'center',
             alignItems: 'center',
             marginBottom: 10,
         },
         logo: {
-            width: 80,
-            height: 80,
-            backgroundColor: '#007AFF',
-            borderRadius: 40,
-            justifyContent: 'center',
-            alignItems: 'center',
-            marginBottom: 10,
-            shadowColor: '#000',
-            shadowOffset: {
-                width: 0,
-                height: 5,
-            },
-            shadowOpacity: 0.2,
-            shadowRadius: 10,
-            elevation: 5,
+            width: 100,
+            height: 100,
+            resizeMode: 'contain',
+            borderRadius: 10,
+            borderColor: 'rgba(34, 13, 13, 0.36)',
         },
         validationText: {
             fontSize: 12,
@@ -348,9 +340,10 @@ export default function SignUpScreen({ navigation }) {
                         contentContainerStyle={{ flexGrow: 1 }}
                     >
                         <View style={styles.logoContainer}>
-                            <View style={styles.logo}>
-                                <Ionicons name="person-add" size={40} color="white" />
-                            </View>
+                            <Image
+                                source={require('../assets/icon.png')}
+                                style={styles.logo}
+                            />
                         </View>
 
                         <Text style={styles.title}>Student Registration</Text>
@@ -538,6 +531,7 @@ export default function SignUpScreen({ navigation }) {
                     </ScrollView>
                 </View>
             </View>
+            <AlertComponent />
         </KeyboardAvoidingView>
     );
 }
