@@ -6,6 +6,22 @@ export default function SplashScreen() {
     const scaleAnim = useRef(new Animated.Value(0.7)).current;
     const bgAnim = useRef(new Animated.Value(0)).current;
 
+    // Hide Navigation Bar
+    useEffect(() => {
+        const hideBars = async () => {
+            try {
+                // Hide navigation bar
+                await NavigationBar.setBehaviorAsync('immersive-sticky');
+                await NavigationBar.setVisibilityAsync('hidden');
+                await NavigationBar.setBorderColorAsync(color);
+                // Hide status bar
+                StatusBar.setHidden(true, 'none');
+            } catch (err) {
+                console.warn('NavigationBar error:', err);
+            }
+        };
+    }, []);
+    
     useEffect(() => {
         // Background fade in
         Animated.timing(bgAnim, {

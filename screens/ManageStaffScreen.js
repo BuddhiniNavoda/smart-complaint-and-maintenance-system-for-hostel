@@ -4,7 +4,6 @@ import {
     Text,
     StyleSheet,
     TouchableOpacity,
-    Alert,
     ScrollView,
     TextInput,
     Modal,
@@ -16,6 +15,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ThemeContext } from '../context/ThemeContext';
 import { ref, onValue, off, push, set, remove, update, get } from 'firebase/database';
 import { database } from '../firebase/config';
+import useAlert from '../hooks/useAlert';
 
 export default function ManageStaffScreen({ navigation, route }) {
     const [staffMembers, setStaffMembers] = useState([]);
@@ -25,6 +25,7 @@ export default function ManageStaffScreen({ navigation, route }) {
     const [selectedStaff, setSelectedStaff] = useState(null);
     const [userData, setUserData] = useState(null);
     const { isDarkMode } = useContext(ThemeContext);
+    const { showAlert, AlertComponent } = useAlert();
 
     // Form states
     const [name, setName] = useState('');
@@ -111,7 +112,7 @@ export default function ManageStaffScreen({ navigation, route }) {
             }, (error) => {
                 console.error('Firebase listener error:', error);
                 setLoading(false);
-            }); 
+            });
 
         } catch (error) {
             console.error('Error loading staff:', error);
@@ -131,19 +132,19 @@ export default function ManageStaffScreen({ navigation, route }) {
 
     const validateForm = () => {
         if (!name.trim()) {
-            Alert.alert('Error', 'Please enter staff name');
+            showAlert("Warning", "Please enter staff name", [], 'warning');
             return false;
         }
         if (!email.trim() || !email.includes('@')) {
-            Alert.alert('Error', 'Please enter a valid email address');
+            showAlert("Warning", "Please enter a valid email address", [], 'warning');
             return false;
         }
         if (showAddModal && (!password || password.length < 6)) {
-            Alert.alert('Error', 'Password must be at least 6 characters long');
+            showAlert("Warning", "Password must be at least 6 characters long", [], 'warning');
             return false;
         }
         if (!phone.trim()) {
-            Alert.alert('Error', 'Please enter phone number');
+            showAlert("Warning", "Please enter phone number", [], 'warning');
             return false;
         }
         return true;
@@ -183,13 +184,12 @@ export default function ManageStaffScreen({ navigation, route }) {
                 id: newStaffRef.key
             });
 
-            Alert.alert('Success', 'Staff member added successfully');
+            showAlert("Success", "Staff member added successfully", [], 'success');
             setShowAddModal(false);
             resetForm();
 
         } catch (error) {
-            console.error('Error adding staff:', error);
-            Alert.alert('Error', 'Failed to add staff member');
+            showAlert("Error", "Failed to add staff member", [], 'error');
         } finally {
             setLoading(false);
         }
@@ -231,33 +231,33 @@ export default function ManageStaffScreen({ navigation, route }) {
                 });
             }
 
-            Alert.alert('Success', 'Staff member updated successfully');
+            showAlert("Success", "Staff member updated successfully", [], 'success');
             setShowEditModal(false);
             resetForm();
 
         } catch (error) {
-            console.error('Error updating staff:', error);
-            Alert.alert('Error', 'Failed to update staff member');
+            showAlert("Error", "Failed to update staff member", [], 'error');
         } finally {
             setLoading(false);
         }
     };
 
     const handleDeleteStaff = (staff) => {
-        Alert.alert(
-            'Delete Staff Member',
-            `Are you sure you want to delete ${staff.name}? This action cannot be undone.`,
+        showAlert(
+            "Delete Staff Member",
+            `Are you sure you want to delete ${staff.name}? This action cannot be undone`,
             [
                 {
-                    text: 'Cancel',
-                    style: 'cancel'
+                    text: "Cancel",
+                    style: "cancel",
                 },
                 {
-                    text: 'Delete',
-                    style: 'destructive',
-                    onPress: () => deleteStaffMember(staff)
+                    text: "Delete",
+                    style: "destructive",
+                    onPress: () => deleteStaffMember(staff),
                 }
-            ]
+            ],
+            'warning'
         );
     };
 
@@ -282,11 +282,11 @@ export default function ManageStaffScreen({ navigation, route }) {
                 });
             }
 
-            Alert.alert('Success', 'Staff member deleted successfully');
+            showAlert("Success", "Staff member deleted successfully", [], 'success');
+
 
         } catch (error) {
-            console.error('Error deleting staff:', error);
-            Alert.alert('Error', 'Failed to delete staff member');
+            showAlert("Error", "Failed to delete staff member", [], 'error');
         } finally {
             setLoading(false);
         }
@@ -299,7 +299,7 @@ export default function ManageStaffScreen({ navigation, route }) {
         setDepartment(staff.department);
         setPhone(staff.phone);
         setSpecialization(staff.specialization);
-        setPassword(''); // Don't show password when editing
+        setPassword('');
         setShowEditModal(true);
     };
 
@@ -330,11 +330,9 @@ export default function ManageStaffScreen({ navigation, route }) {
                 });
             }
 
-            Alert.alert('Success', `Staff member ${newStatus ? 'activated' : 'deactivated'} successfully`);
-
+            showAlert("Success", `Staff member ${newStatus ? 'activated' : 'deactivated'} successfully`, [], 'success');
         } catch (error) {
-            console.error('Error updating staff status:', error);
-            Alert.alert('Error', 'Failed to update staff status');
+            showAlert("Error", "Failed to update staff status", [], 'error');
         } finally {
             setLoading(false);
         }
@@ -924,6 +922,7 @@ export default function ManageStaffScreen({ navigation, route }) {
 
                 {renderModal()}
             </View>
+            <AlertComponent />
         </View>
     );
 }

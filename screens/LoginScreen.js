@@ -1,12 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, TextInput, Button, StyleSheet, Alert, TouchableOpacity, ActivityIndicator, Dimensions } from 'react-native';
+import { View, Text, TextInput, Image, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useColorScheme } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { ref, get } from 'firebase/database';
 import { database } from '../firebase/config';
-
-const { width, height } = Dimensions.get('window');
+import useAlert from '../hooks/useAlert';
 
 export default function LoginScreen({ navigation }) {
   const [username, setUsername] = useState('');
@@ -15,6 +14,7 @@ export default function LoginScreen({ navigation }) {
   const [loading, setLoading] = useState(false);
   const colorScheme = useColorScheme();
   const darkMode = colorScheme === 'dark';
+  const { showAlert, AlertComponent } = useAlert();
 
   const InputWithIcon = useCallback(({ icon, placeholder, value, onChangeText, secureTextEntry }) => (
     <View style={styles.inputContainer}>
@@ -51,7 +51,7 @@ export default function LoginScreen({ navigation }) {
 
   const handleLogin = async () => {
     if (!username || !password) {
-      Alert.alert("Error", "Please enter both username and password");
+      showAlert("Warning", "Please enter both username and password", [], 'warning');
       return;
     }
 
@@ -98,18 +98,16 @@ export default function LoginScreen({ navigation }) {
             userData: userToStore
           });
 
-          Alert.alert("Success", "Login successful!");
         } else if (userFound) {
-          Alert.alert("Login Failed", "Invalid password");
+          showAlert("Login Failed", "Invalid password", [], 'error');
         } else {
-          Alert.alert("Login Failed", "User not found");
+          showAlert("Login Failed", "User not found", [], 'error');
         }
       } else {
-        Alert.alert("Login Failed", "No users found in database");
+        showAlert("Login Failed", "No users found", [], 'error');
       }
     } catch (error) {
-      console.error('Login error:', error);
-      Alert.alert("Error", "Failed to login. Please try again.");
+      showAlert("Error", "Failed to login. Please try again", [], 'error');
     } finally {
       setLoading(false);
     }
@@ -247,25 +245,17 @@ export default function LoginScreen({ navigation }) {
       marginVertical: 20,
     },
     logoContainer: {
+      borderRadius: 70,
+      justifyContent: 'center',
       alignItems: 'center',
       marginBottom: 10,
     },
     logo: {
-      width: 80,
-      height: 80,
-      backgroundColor: '#007AFF',
-      borderRadius: 40,
-      justifyContent: 'center',
-      alignItems: 'center',
-      marginBottom: 10,
-      shadowColor: '#000',
-      shadowOffset: {
-        width: 0,
-        height: 5,
-      },
-      shadowOpacity: 0.2,
-      shadowRadius: 10,
-      elevation: 5,
+      width: 100,
+      height: 100,
+      resizeMode: 'contain',
+      borderRadius: 10,
+      borderColor: 'rgba(34, 13, 13, 0.36)',
     },
   });
 
@@ -277,9 +267,10 @@ export default function LoginScreen({ navigation }) {
 
       <View style={styles.contentContainer}>
         <View style={styles.logoContainer}>
-          <View style={styles.logo}>
-            <Ionicons name="build" size={40} color="white" />
-          </View>
+          <Image
+            source={require('../assets/icon.png')}
+            style={styles.logo}
+          />
         </View>
 
         <Text style={styles.title}>Fixora</Text>
@@ -321,6 +312,7 @@ export default function LoginScreen({ navigation }) {
           </Text>
         </Text>
       </View>
+      <AlertComponent />
     </View>
   );
 }

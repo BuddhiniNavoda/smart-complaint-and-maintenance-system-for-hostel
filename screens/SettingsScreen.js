@@ -5,8 +5,6 @@ import {
     StyleSheet,
     TouchableOpacity,
     Image,
-    Alert,
-    Switch,
     ScrollView,
     ActivityIndicator,
     Modal,
@@ -18,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { ThemeContext } from '../context/ThemeContext';
 import { get, ref, update } from 'firebase/database';
 import { database } from '../firebase/config';
+import useAlert from '../hooks/useAlert';
 
 const defaultProfilePicture = require("../assets/default_profile_picture.png");
 
@@ -34,12 +33,12 @@ export default function SettingsScreen({ navigation, route }) {
     const [showCurrentPassword, setShowCurrentPassword] = useState(false);
     const [showNewPassword, setShowNewPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+    const { showAlert, AlertComponent } = useAlert();
 
     // Load user data from AsyncStorage and profile picture
     useEffect(() => {
         const loadUserData = async () => {
             try {
-                // Load user data from AsyncStorage
                 const storedUserData = await AsyncStorage.getItem('userData');
                 if (storedUserData) {
                     const parsedData = JSON.parse(storedUserData);
@@ -61,8 +60,7 @@ export default function SettingsScreen({ navigation, route }) {
                     }
                 }
             } catch (error) {
-                console.error('Error loading user data:', error);
-                Alert.alert("Error", "Failed to load user data");
+                showAlert("Error", "Failed to load user data", [], 'error');
             } finally {
                 setIsLoading(false);
             }
@@ -72,16 +70,17 @@ export default function SettingsScreen({ navigation, route }) {
     }, [route.params]);
 
     const handleLogout = async () => {
-        Alert.alert(
+        showAlert(
             "Logout",
             "Are you sure you want to logout?",
             [
                 {
                     text: "Cancel",
-                    style: "cancel"
+                    style: "cancel",
                 },
                 {
                     text: "Logout",
+                    style: "destructive",
                     onPress: async () => {
                         try {
                             await AsyncStorage.removeItem('userData');
@@ -90,13 +89,12 @@ export default function SettingsScreen({ navigation, route }) {
                                 routes: [{ name: 'Login' }],
                             });
                         } catch (error) {
-                            Alert.alert("Error", "Failed to logout");
-                            console.error('Error during logout:', error);
+                            showAlert("Error", "Failed to logout", [], 'error');
                         }
                     },
-                    style: "destructive"
                 }
-            ]
+            ],
+            'warning'
         );
     };
 
@@ -116,10 +114,9 @@ export default function SettingsScreen({ navigation, route }) {
 
             try {
                 await AsyncStorage.setItem(`Fixora_profilePicture_${userData.username}`, imageUri);
-                Alert.alert("Success", "Profile picture updated successfully");
+                showAlert("Success", "Profile picture updated successfully", [], 'success');
             } catch (error) {
-                console.error("Error saving profile picture:", error);
-                Alert.alert("Error", "Failed to save profile picture");
+                showAlert("Error", "Failed to save profile picture", [], 'error');
             }
         }
     };
@@ -130,31 +127,30 @@ export default function SettingsScreen({ navigation, route }) {
         try {
             await AsyncStorage.removeItem(`Fixora_profilePicture_${userData.username}`);
             setImage(defaultProfilePicture);
-            Alert.alert("Success", "Profile picture removed");
+            showAlert("Success", "Profile picture removed", [], 'success');
         } catch (error) {
-            console.error("Error removing profile picture:", error);
-            Alert.alert("Error", "Failed to remove profile picture");
+            showAlert("Error", "Failed to remove profile picture", [], 'error');
         }
     };
 
     const handleChangePassword = async () => {
         if (!currentPassword || !newPassword || !confirmPassword) {
-            Alert.alert("Error", "Please fill in all password fields");
+            showAlert("Warning", "Please fill in all password fields", [], 'warning');
             return;
         }
 
         if (newPassword.length < 6) {
-            Alert.alert("Error", "New password must be at least 6 characters long");
+            showAlert("Warning", "New password must be at least 6 characters long", [], 'warning');
             return;
         }
 
         if (newPassword !== confirmPassword) {
-            Alert.alert("Error", "New passwords don't match");
+            showAlert("Warning", "New passwords don't match", [], 'warning');
             return;
         }
 
         if (currentPassword === newPassword) {
-            Alert.alert("Error", "New password must be different from current password");
+            showAlert("Error", "New password must be different from current password", [], 'error');
             return;
         }
 
@@ -166,7 +162,7 @@ export default function SettingsScreen({ navigation, route }) {
             const snapshot = await get(userRef);
 
             if (!snapshot.exists()) {
-                Alert.alert("Error", "User not found in database");
+                showAlert("Error", "User not found in database", [], 'error');
                 setChangingPassword(false);
                 return;
             }
@@ -176,7 +172,7 @@ export default function SettingsScreen({ navigation, route }) {
 
             // Verify current password
             if (currentPassword !== currentPasswordFromFirebase) {
-                Alert.alert("Error", "Current password is incorrect");
+                showAlert("Error", "Current password is incorrect", [], 'error');
                 setChangingPassword(false);
                 return;
             }
@@ -194,14 +190,12 @@ export default function SettingsScreen({ navigation, route }) {
             };
             await AsyncStorage.setItem('userData', JSON.stringify(updatedUserData));
             setUserData(updatedUserData);
-
-            Alert.alert("Success", "Password changed successfully");
+            showAlert("Success", "Password changed successfully", [], 'success');
             setShowChangePasswordModal(false);
             resetPasswordForm();
 
         } catch (error) {
-            console.error('Error changing password:', error);
-            Alert.alert("Error", "Failed to change password. Please try again.");
+            showAlert("Error", "Failed to change password. Please try again", [], 'error');
         } finally {
             setChangingPassword(false);
         }
@@ -671,15 +665,19 @@ export default function SettingsScreen({ navigation, route }) {
                         </View>
                         <TouchableOpacity
                             onPress={() => {
-                                Alert.alert(
+                                showAlert(
                                     "Dark Mode - Coming Soon",
                                     "We're working on bringing dark mode to Fixora. Stay tuned for the next update!",
                                     [
                                         {
                                             text: "Got it!",
-                                            style: "default"
+                                            style: "destructive",
+                                            onPress: () => {
+                                                console.log("Dark mode news");
+                                            },
                                         }
-                                    ]
+                                    ],
+                                    'success'
                                 );
                             }}
                             style={styles.disabledSwitchContainer}
@@ -858,6 +856,7 @@ export default function SettingsScreen({ navigation, route }) {
                     </View>
                 </View>
             </Modal>
+            <AlertComponent />
         </View>
     );
 }

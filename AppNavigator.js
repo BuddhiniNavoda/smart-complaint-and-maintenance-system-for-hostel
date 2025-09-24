@@ -4,7 +4,8 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Keyboard, InteractionManager, LogBox, View, ActivityIndicator, Text } from 'react-native';
+import {LogBox, View,Platform} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Import all your screens
 import LoginScreen from './screens/LoginScreen';
@@ -52,43 +53,41 @@ export default function NavigationWrapper() {
     }, []);
 
     useEffect(() => {
-        const hideNavBar = async () => {
-            try {
-                await NavigationBar.setVisibilityAsync('hidden');
-                await NavigationBar.setBehaviorAsync('inset-touch');
-            } catch (error) {
-                console.error('Navigation bar error:', error);
+        const showNavigationBar = async (color) => {
+            if (!isLoading) {
+                try {
+                    await NavigationBar.setVisibilityAsync('visible');
+                    await NavigationBar.setBehaviorAsync('overlay-swipe');
+                    await NavigationBar.setBorderColorAsync(color);
+                } catch (error) {
+                    console.warn('NavigationBar error:', error);
+                }
             }
         };
 
-        InteractionManager.runAfterInteractions(hideNavBar);
-    }, []);
-
-    useEffect(() => {
-        const showSubscription = Keyboard.addListener('keyboardDidShow', () => {
-            NavigationBar.setVisibilityAsync('visible');
-        });
-
-        const hideSubscription = Keyboard.addListener('keyboardDidHide', () => {
-            NavigationBar.setVisibilityAsync('hidden');
-            NavigationBar.setBehaviorAsync('inset-touch');
-        });
-
-        return () => {
-            showSubscription.remove();
-            hideSubscription.remove();
-        };
-    }, []);
+        showNavigationBar('rgb(224, 247, 255)');
+    }, [isLoading]);
 
     function MainTabs({ route }) {
         const { userType, userData } = route.params || {};
+        const insets = useSafeAreaInsets();
+        const [navBarHeight, setNavBarHeight] = useState(0);
+        const totalHeight = 80 + navBarHeight;
+
+        useEffect(() => {
+            if (Platform.OS === 'android') {
+                setNavBarHeight(insets.bottom - 15);
+            } else {
+                setNavBarHeight(0);
+            }
+        }, [insets.bottom]);
 
         const tabBarStyles = {
             tabBarActiveTintColor: '#007AFF',
             tabBarInactiveTintColor: '#88B2FF',
             tabBarStyle: {
                 backgroundColor: 'white',
-                height: 80,
+                height: totalHeight,
                 borderTopWidth: 2,
                 borderTopColor: '#E3F2FD',
                 paddingBottom: 10,
