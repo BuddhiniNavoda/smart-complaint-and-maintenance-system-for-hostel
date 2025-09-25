@@ -175,27 +175,7 @@ export default function HomeScreen({ navigation, route }) {
     const isUserComplaint = complaint.userId === userData?.id ||
       complaint.submittedBy === userData?.username;
 
-    // Warden type filtering
-    if (userType === 'wardenB') {
-      if (complaint.hostelType !== 'male' && !isUserComplaint) {
-        return false;
-      }
-    } else if (userType === 'wardenF') {
-      if (complaint.hostelType !== 'female' && !isUserComplaint) {
-        return false;
-      }
-    }
-    else if (userType === 'staff' && userData?.assignedHostelGender === 'male') {
-      if (complaint.hostelType !== 'male' && !isUserComplaint) {
-        return false;
-      }
-    }
-    else if (userType === 'staff' && userData?.assignedHostelGender === 'female') {
-      if (complaint.hostelType !== 'female' && !isUserComplaint) {
-        return false;
-      }
-    }
-
+    // Users can always see their own complaints
     if (isUserComplaint) {
       if (activeTab === 'Submitted') return complaint.status === 'Submitted';
       if (activeTab === 'Approved') return complaint.status === 'Approved';
@@ -203,19 +183,47 @@ export default function HomeScreen({ navigation, route }) {
       return true;
     }
 
-    if (userType === 'student' && complaint.visibility == 'public') {
-      if (userData?.hostelGender === 'male' && complaint.hostelType === 'male') {
-        return true;
+    // WardenB: Can see all male hostel complaints (public + private)
+    if (userType === 'wardenB') {
+      if (complaint.hostelType !== 'male') {
+        return false;
       }
-      if (userData?.hostelGender === 'female' && complaint.hostelType === 'female') {
-        return true;
+    }
+    // WardenF: Can see all female hostel complaints (public + private)
+    else if (userType === 'wardenF') {
+      if (complaint.hostelType !== 'female') {
+        return false;
       }
-      return false;
+    }
+    // Staff: Can see complaints based on assigned hostel gender
+    else if (userType === 'staff') {
+      if (userData?.assignedHostelGender === 'male' && complaint.hostelType !== 'male') {
+        return false;
+      }
+      if (userData?.assignedHostelGender === 'female' && complaint.hostelType !== 'female') {
+        return false;
+      }
+    }
+    // Students: Can only see public complaints of same gender
+    else if (userType === 'student') {
+      // Students can only see public complaints
+      if (complaint.visibility !== 'public') {
+        return false;
+      }
+      // And only same gender complaints
+      if (userData?.hostelGender === 'male' && complaint.hostelType !== 'male') {
+        return false;
+      }
+      if (userData?.hostelGender === 'female' && complaint.hostelType !== 'female') {
+        return false;
+      }
     }
 
+    // Filter by active tab for all users
     if (activeTab === 'Submitted') return complaint.status === 'Submitted';
     if (activeTab === 'Approved') return complaint.status === 'Approved';
     if (activeTab === 'Fixed') return complaint.status === 'Fixed';
+
     return true;
   }).sort((a, b) => b.votes - a.votes);
 

@@ -369,6 +369,7 @@ export default function ComplaintDetailScreen({ navigation, route }) {
     },
     fixedButton: {
       backgroundColor: '#4CAF50',
+      marginBottom: 50
     },
     buttonText: {
       color: 'white',
@@ -806,7 +807,7 @@ export default function ComplaintDetailScreen({ navigation, route }) {
 
         {(userType === 'warden' || userType === 'wardenB' || userType === 'wardenF') && currentComplaint.status === 'Submitted' && (
           <TouchableOpacity
-            style={styles.actionButton}
+            style={[styles.actionButton, { marginBottom: 50 }]}
             onPress={approveComplaint}
             disabled={loading}
           >
