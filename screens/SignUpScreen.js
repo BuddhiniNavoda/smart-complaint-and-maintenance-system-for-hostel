@@ -30,8 +30,8 @@ const hostelBlocks = [
 ];
 
 const hostelGenders = [
-    'Male',
-    'Female',
+    'male',
+    'female',
 ];
 
 export default function SignUpScreen({ navigation }) {
