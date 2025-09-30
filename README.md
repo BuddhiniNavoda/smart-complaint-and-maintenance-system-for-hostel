@@ -58,4 +58,4 @@ A modern, cross-platform mobile application designed to streamline hostel mainte
 | Staff | Limited | Update assigned complaint status |
 
 ## 🚀 APK access
-- Coming soon
+[Download from here](https://drive.google.com/drive/folders/1cK94DlPvLQkxHVoWZ0TEe99SEUezwTYA?usp=sharing)
